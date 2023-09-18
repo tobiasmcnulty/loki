@@ -19,6 +19,7 @@ help:
 .PHONY: clean clean-protos
 .PHONY: k3d-loki k3d-enterprise-logs k3d-down
 .PHONY: helm-test helm-lint
+.PHONY: bloom-tester
 
 SHELL = /usr/bin/env bash -o pipefail
 
@@ -340,6 +341,7 @@ clean: ## clean the generated files
 	rm -rf clients/cmd/fluent-bit/out_grafana_loki.so
 	rm -rf cmd/migrate/migrate
 	rm -rf cmd/logql-analyzer/logql-analyzer
+	rm -rf tools/tsdb/bloom-tester
 	$(MAKE) -BC clients/cmd/fluentd $@
 	go clean ./...
 
@@ -829,3 +831,21 @@ dev-k3d-down:
 # Trivy is used to scan images for vulnerabilities
 trivy: loki-image
 	trivy i $(IMAGE_PREFIX)/loki:$(IMAGE_TAG)
+
+###############
+# bloom-tester #
+###############
+.PHONY: tools/tsdb/bloom-tester/bloom-tester
+.PHONY: bloom-tester
+bloom-tester: tools/tsdb/bloom-tester/bloom-tester
+BLOOM_TESTER_TOOL_FOLDER = ./tools/tsdb/bloom-tester
+
+tools/tsdb/bloom-tester/bloom-tester:
+	CGO_ENABLED=0 go build $(GO_FLAGS) -o $@ ./$(@D)
+
+bloom-tester-image:
+#	$(SUDO) docker build -t $(IMAGE_PREFIX)/$(shell basename $(BLOOM_TESTER_TOOL_FOLDER)) $(BLOOM_TESTER_TOOL_FOLDER)
+	$(SUDO) docker build -t $(IMAGE_PREFIX)/bloom-tester:$(IMAGE_TAG) -f tools/tsdb/bloom-tester/Dockerfile --progress=plain $(BLOOM_TESTER_TOOL_FOLDER)
+
+bloom-tester-paul:
+	$(SUDO) docker buildx build --platform linux/amd64 -t paul1r/loki-bloom-test:$(IMAGE_TAG) -f tools/tsdb/bloom-tester/Dockerfile --progress=plain  .
