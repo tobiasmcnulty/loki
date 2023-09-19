@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"math"
+	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-kit/log/level"
@@ -62,6 +66,7 @@ func execute() {
 	helpers.ExitErr("creating index shipper", err)
 
 	tenants, tableName, err := helpers.ResolveTenants(objectClient, bucket, tableRanges)
+	level.Info(util_log.Logger).Log("tenants", strings.Join(tenants, ","), "table", tableName)
 	helpers.ExitErr("resolving tenants", err)
 
 	sampler, err := NewProbabilisticSampler(0.00008)
@@ -173,16 +178,28 @@ var experiments = []Experiment{
 func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShipper, client client.Client, tableName string, tenants []string) error {
 	metrics.tenants.Add(float64(len(tenants)))
 
+	testerNumber := extractTesterNumber(os.Getenv("HOSTNAME"))
+	if testerNumber == -1 {
+		helpers.ExitErr("extracting hostname index number", nil)
+	}
+	numTesters, _ := strconv.Atoi(os.Getenv("NUM_TESTERS"))
+	if numTesters == -1 {
+		helpers.ExitErr("extracting total number of testers", nil)
+	}
+	level.Info(util_log.Logger).Log("msg", "starting analyze()", "tester", testerNumber, "total", numTesters)
+
 	var n int         // count iterated series
 	reportEvery := 10 // report every n chunks
 	pool := newPool(runtime.NumCPU())
 
 	for _, tenant := range tenants {
+		level.Info(util_log.Logger).Log("Analyzing tenant", tenant, "table", tableName)
 		err := shipper.ForEach(
 			context.Background(),
 			tableName,
 			tenant,
 			indexshipper_index.ForEachIndexCallback(func(isMultiTenantIndex bool, idx indexshipper_index.Index) error {
+				level.Info(util_log.Logger).Log("isMulti", isMultiTenantIndex)
 				if isMultiTenantIndex {
 					return nil
 				}
@@ -297,6 +314,11 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
 									metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
 
+									err = writeSBFToFile(sbf, fmt.Sprint("/tmp/experiment-", experimentIdx))
+									if err != nil {
+										helpers.ExitErr("writing sbf to file", err)
+									}
+
 								}
 
 								metrics.seriesKept.Inc()
@@ -328,4 +350,39 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 // n ≈ −m ln(1 − p).
 func estimatedCount(m uint, p float64) uint {
 	return uint(-float64(m) * math.Log(1-p))
+}
+
+func extractTesterNumber(input string) int {
+	// Split the input string by '-' to get individual parts
+	parts := strings.Split(input, "-")
+
+	// Extract the last part (the number)
+	lastPart := parts[len(parts)-1]
+
+	// Attempt to convert the last part to an integer
+	extractedNumber, err := strconv.Atoi(lastPart)
+	if err != nil {
+		return -1
+	}
+
+	// Send the extracted number to the result channel
+	return extractedNumber
+}
+
+func writeSBFToFile(sbf *boom.ScalableBloomFilter, filename string) error {
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	w := bufio.NewWriter(f)
+	bytesWritten, err := sbf.WriteTo(w)
+	if err != nil {
+		return err
+	} else {
+		level.Info(util_log.Logger).Log("msg", "wrote sbf", "bytes", bytesWritten, "file", filename)
+	}
+	err = w.Flush()
+	return err
 }

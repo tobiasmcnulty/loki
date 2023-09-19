@@ -848,4 +848,4 @@ bloom-tester-image:
 	$(SUDO) docker build -t $(IMAGE_PREFIX)/bloom-tester:$(IMAGE_TAG) -f tools/tsdb/bloom-tester/Dockerfile --progress=plain $(BLOOM_TESTER_TOOL_FOLDER)
 
 bloom-tester-paul:
-	$(SUDO) docker buildx build --platform linux/amd64 -t paul1r/loki-bloom-test:$(IMAGE_TAG) -f tools/tsdb/bloom-tester/Dockerfile --progress=plain  .
+	$(SUDO) docker buildx build --platform linux/amd64 -t paul1r/loki-bloom-test:$(IMAGE_TAG) -f tools/tsdb/bloom-tester/Dockerfile  .
