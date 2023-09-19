@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -69,7 +68,8 @@ func execute() {
 	level.Info(util_log.Logger).Log("tenants", strings.Join(tenants, ","), "table", tableName)
 	helpers.ExitErr("resolving tenants", err)
 
-	sampler, err := NewProbabilisticSampler(0.00008)
+	//sampler, err := NewProbabilisticSampler(0.00008)
+	sampler, err := NewProbabilisticSampler(1.000)
 	helpers.ExitErr("creating sampler", err)
 
 	metrics := NewMetrics(prometheus.DefaultRegisterer)
@@ -188,9 +188,10 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 	}
 	level.Info(util_log.Logger).Log("msg", "starting analyze()", "tester", testerNumber, "total", numTesters)
 
-	var n int         // count iterated series
-	reportEvery := 10 // report every n chunks
-	pool := newPool(runtime.NumCPU())
+	var n int // count iterated series
+	//reportEvery := 10 // report every n chunks
+	//pool := newPool(runtime.NumCPU())
+	pool := newPool(1) // going to use pods in the statefulset for the parallelism
 
 	for _, tenant := range tenants {
 		level.Info(util_log.Logger).Log("Analyzing tenant", tenant, "table", tableName)
@@ -199,7 +200,6 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 			tableName,
 			tenant,
 			indexshipper_index.ForEachIndexCallback(func(isMultiTenantIndex bool, idx indexshipper_index.Index) error {
-				level.Info(util_log.Logger).Log("isMulti", isMultiTenantIndex)
 				if isMultiTenantIndex {
 					return nil
 				}
@@ -224,8 +224,18 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									return
 								}
 
-								transformed := make([]chunk.Chunk, 0, len(chks))
-								for _, chk := range chks {
+								splitChks := splitSlice(chks, numTesters)
+								level.Info(util_log.Logger).Log("Number of splits", len(splitChks), "Items in split", len(splitChks[0]))
+								var transformed []chunk.Chunk
+								//transformed := splitChks[testerNumber]
+
+								//transformed := make([]chunk.Chunk, 0, len(chks))
+								//for _, chk := range chks {
+								var firstTimeStamp model.Time
+								var lastTimeStamp model.Time
+								var firstFP uint64
+								var lastFP uint64
+								for i, chk := range splitChks[testerNumber] {
 									transformed = append(transformed, chunk.Chunk{
 										ChunkRef: logproto.ChunkRef{
 											Fingerprint: uint64(fp),
@@ -235,6 +245,14 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 											Checksum:    chk.Checksum,
 										},
 									})
+
+									if i == 0 {
+										firstTimeStamp = chk.From()
+										firstFP = uint64(fp)
+									}
+									// yes I could do this just on the last one but I'm lazy
+									lastTimeStamp = chk.Through()
+									lastFP = uint64(fp)
 								}
 
 								got, err := client.GetChunks(
@@ -253,6 +271,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 
 								// iterate experiments
 								for experimentIdx, experiment := range experiments {
+									level.Info(util_log.Logger).Log("experiment", experiment.name)
 
 									sbf := experiment.bloom()
 
@@ -266,17 +285,18 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 											tokenizer = ChunkIDTokenizer(got[idx].ChunkRef, tokenizer)
 										}
 										lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
+										level.Info(util_log.Logger).Log("in range", idx)
 
 										// Only report on the last experiment since they run serially
-										if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
-											estimatedProgress := float64(fp) / float64(model.Fingerprint(math.MaxUint64)) * 100.
-											level.Info(util_log.Logger).Log(
-												"msg", "iterated",
-												"progress", fmt.Sprintf("%.2f%%", estimatedProgress),
-												"chunks", len(chks),
-												"series", ls.String(),
-											)
-										}
+										/*if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
+										estimatedProgress := float64(fp) / float64(model.Fingerprint(math.MaxUint64)) * 100.
+										level.Info(util_log.Logger).Log(
+											"msg", "iterated",
+											"progress", fmt.Sprintf("%.2f%%", estimatedProgress),
+											"chunks", len(chks),
+											"series", ls.String(),
+										)
+										}*/
 
 										itr, err := lc.Iterator(
 											context.Background(),
@@ -314,7 +334,19 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
 									metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
 
-									err = writeSBFToFile(sbf, fmt.Sprint("/tmp/experiment-", experimentIdx))
+									level.Info(util_log.Logger).Log("about to write to file")
+									//location, prefix, period, tenant, startfp, endfp, startts, endts
+									writeSBF(sbf,
+										os.Getenv("DIR"),
+										fmt.Sprint(experimentIdx),
+										os.Getenv("BUCKET"),
+										tenant,
+										fmt.Sprint(firstFP),
+										fmt.Sprint(lastFP),
+										fmt.Sprint(firstTimeStamp),
+										fmt.Sprint(lastTimeStamp))
+
+									//fmt.Sprint("/tmp/experiment-", experimentIdx))
 									if err != nil {
 										helpers.ExitErr("writing sbf to file", err)
 									}
@@ -352,6 +384,31 @@ func estimatedCount(m uint, p float64) uint {
 	return uint(-float64(m) * math.Log(1-p))
 }
 
+func splitSlice(slice []index.ChunkMeta, n int) [][]index.ChunkMeta {
+	if n <= 0 {
+		return nil // Return nil if n is not positive
+	}
+
+	// Calculate the size of each smaller slice
+	sliceSize := len(slice) / n
+	var result [][]index.ChunkMeta
+
+	// Split the original slice into smaller slices
+	for i := 0; i < n; i++ {
+		startIndex := i * sliceSize
+		endIndex := (i + 1) * sliceSize
+
+		// Handle the last slice to include any remaining elements
+		if i == n-1 {
+			endIndex = len(slice)
+		}
+
+		result = append(result, slice[startIndex:endIndex])
+	}
+
+	return result
+}
+
 func extractTesterNumber(input string) int {
 	// Split the input string by '-' to get individual parts
 	parts := strings.Split(input, "-")
@@ -367,6 +424,19 @@ func extractTesterNumber(input string) int {
 
 	// Send the extracted number to the result channel
 	return extractedNumber
+}
+
+func writeSBF(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, startfp, endfp, startts, endts string) {
+	checkSum := "chksum"
+	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+		helpers.ExitErr("error creating sbf dir", err)
+	}
+
+	err := writeSBFToFile(sbf, fmt.Sprintf("%s/%s-%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts, checkSum))
+	if err != nil {
+		helpers.ExitErr("writing sbf to file", err)
+	}
 }
 
 func writeSBFToFile(sbf *boom.ScalableBloomFilter, filename string) error {
