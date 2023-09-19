@@ -2,9 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
+	"github.com/grafana/dskit/services"
+	"github.com/grafana/loki/pkg/storage/config"
+	"github.com/prometheus/client_golang/prometheus"
 	"math"
 	"os"
 	"strconv"
@@ -13,18 +17,15 @@ import (
 
 	"github.com/go-kit/log/level"
 	"github.com/owen-d/BoomFilters/boom"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 
-	"github.com/grafana/dskit/services"
 	"github.com/grafana/loki/pkg/chunkenc"
 	"github.com/grafana/loki/pkg/logproto"
 	"github.com/grafana/loki/pkg/logql/log"
 	"github.com/grafana/loki/pkg/storage"
 	"github.com/grafana/loki/pkg/storage/chunk"
 	"github.com/grafana/loki/pkg/storage/chunk/client"
-	"github.com/grafana/loki/pkg/storage/config"
 	"github.com/grafana/loki/pkg/storage/stores/indexshipper"
 	indexshipper_index "github.com/grafana/loki/pkg/storage/stores/indexshipper/index"
 	"github.com/grafana/loki/pkg/storage/stores/tsdb"
@@ -79,7 +80,7 @@ func execute() {
 	helpers.ExitErr("waiting for service to start", err)
 	level.Info(util_log.Logger).Log("msg", "server started")
 
-	err = analyze(metrics, sampler, shipper, chunkClient, tableName, tenants)
+	err = analyze(metrics, sampler, shipper, chunkClient, tableName, tenants, objectClient)
 	helpers.ExitErr("analyzing", err)
 }
 
@@ -175,7 +176,7 @@ var experiments = []Experiment{
 	),
 }
 
-func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShipper, client client.Client, tableName string, tenants []string) error {
+func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShipper, client client.Client, tableName string, tenants []string, objectClient client.ObjectClient) error {
 	metrics.tenants.Add(float64(len(tenants)))
 
 	testerNumber := extractTesterNumber(os.Getenv("HOSTNAME"))
@@ -273,82 +274,96 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 								for experimentIdx, experiment := range experiments {
 									level.Info(util_log.Logger).Log("experiment", experiment.name)
 
-									sbf := experiment.bloom()
-
-									// Iterate chunks
-									var (
-										lines, inserts, collisions float64
-									)
-									for idx := range got {
-										tokenizer := experiment.tokenizer
-										if experiment.encodeChunkID {
-											tokenizer = ChunkIDTokenizer(got[idx].ChunkRef, tokenizer)
-										}
-										lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
-										level.Info(util_log.Logger).Log("in range", idx)
-
-										// Only report on the last experiment since they run serially
-										/*if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
-										estimatedProgress := float64(fp) / float64(model.Fingerprint(math.MaxUint64)) * 100.
-										level.Info(util_log.Logger).Log(
-											"msg", "iterated",
-											"progress", fmt.Sprintf("%.2f%%", estimatedProgress),
-											"chunks", len(chks),
-											"series", ls.String(),
-										)
-										}*/
-
-										itr, err := lc.Iterator(
-											context.Background(),
-											time.Unix(0, 0),
-											time.Unix(0, math.MaxInt64),
-											logproto.FORWARD,
-											log.NewNoopPipeline().ForStream(ls),
-										)
-										helpers.ExitErr("getting iterator", err)
-
-										for itr.Next() && itr.Error() == nil {
-											toks := tokenizer.Tokens(itr.Entry().Line)
-											lines++
-											for _, tok := range toks {
-												for _, str := range []string{tok.Key, tok.Value} {
-													if str != "" {
-														if dup := sbf.TestAndAdd([]byte(str)); dup {
-															collisions++
-														}
-														inserts++
-													}
-												}
-											}
-										}
-										helpers.ExitErr("iterating chunks", itr.Error())
-									}
-
-									metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
-									fillRatio := sbf.FillRatio()
-									metrics.hammingWeightRatio.WithLabelValues(experiment.name).Observe(fillRatio)
-									metrics.estimatedCount.WithLabelValues(experiment.name).Observe(
-										float64(estimatedCount(sbf.Capacity(), sbf.FillRatio())),
-									)
-									metrics.lines.WithLabelValues(experiment.name).Add(lines)
-									metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
-									metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
-
-									level.Info(util_log.Logger).Log("about to write to file")
-									//location, prefix, period, tenant, startfp, endfp, startts, endts
-									writeSBF(sbf,
-										os.Getenv("DIR"),
-										fmt.Sprint(experimentIdx),
+									if !sbfFileExists("bloomtests",
+										fmt.Sprint("experiment-", experimentIdx),
 										os.Getenv("BUCKET"),
 										tenant,
 										fmt.Sprint(firstFP),
 										fmt.Sprint(lastFP),
 										fmt.Sprint(firstTimeStamp),
-										fmt.Sprint(lastTimeStamp))
+										fmt.Sprint(lastTimeStamp),
+										objectClient) {
 
-									//fmt.Sprint("/tmp/experiment-", experimentIdx))
-									if err != nil {
-										helpers.ExitErr("writing sbf to file", err)
+										sbf := experiment.bloom()
+
+										// Iterate chunks
+										var (
+											lines, inserts, collisions float64
+										)
+										for idx := range got {
+											tokenizer := experiment.tokenizer
+											if experiment.encodeChunkID {
+												tokenizer = ChunkIDTokenizer(got[idx].ChunkRef, tokenizer)
+											}
+											lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
+											level.Info(util_log.Logger).Log("in range", idx)
+
+											// Only report on the last experiment since they run serially
+											/*if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
+											estimatedProgress := float64(fp) / float64(model.Fingerprint(math.MaxUint64)) * 100.
+											level.Info(util_log.Logger).Log(
+												"msg", "iterated",
+												"progress", fmt.Sprintf("%.2f%%", estimatedProgress),
+												"chunks", len(chks),
+												"series", ls.String(),
+											)
+											}*/
+
+											itr, err := lc.Iterator(
+												context.Background(),
+												time.Unix(0, 0),
+												time.Unix(0, math.MaxInt64),
+												logproto.FORWARD,
+												log.NewNoopPipeline().ForStream(ls),
+											)
+											helpers.ExitErr("getting iterator", err)
+
+											for itr.Next() && itr.Error() == nil {
+												toks := tokenizer.Tokens(itr.Entry().Line)
+												lines++
+												for _, tok := range toks {
+													for _, str := range []string{tok.Key, tok.Value} {
+														if str != "" {
+															if dup := sbf.TestAndAdd([]byte(str)); dup {
+																collisions++
+															}
+															inserts++
+														}
+													}
+												}
+											}
+											helpers.ExitErr("iterating chunks", itr.Error())
+										}
+
+										metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
+										fillRatio := sbf.FillRatio()
+										metrics.hammingWeightRatio.WithLabelValues(experiment.name).Observe(fillRatio)
+										metrics.estimatedCount.WithLabelValues(experiment.name).Observe(
+											float64(estimatedCount(sbf.Capacity(), sbf.FillRatio())),
+										)
+										metrics.lines.WithLabelValues(experiment.name).Add(lines)
+										metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
+										metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
+
+										level.Info(util_log.Logger).Log("about to write to file")
+										//location, prefix, period, tenant, startfp, endfp, startts, endts
+										writeSBF(sbf,
+											os.Getenv("DIR"),
+											fmt.Sprint("experiment-", experimentIdx),
+											os.Getenv("BUCKET"),
+											tenant,
+											fmt.Sprint(firstFP),
+											fmt.Sprint(lastFP),
+											fmt.Sprint(firstTimeStamp),
+											fmt.Sprint(lastTimeStamp),
+											objectClient)
+
+										//fmt.Sprint("/tmp/experiment-", experimentIdx))
+										if err != nil {
+											helpers.ExitErr("writing sbf to file", err)
+										}
+									} else {
+										level.Info(util_log.Logger).Log("skipping as this is already in object storage")
 									}
 
 								}
@@ -426,9 +441,20 @@ func extractTesterNumber(input string) int {
 	return extractedNumber
 }
 
-func writeSBF(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, startfp, endfp, startts, endts string) {
+func sbfFileExists(location, prefix, period, tenant, startfp, endfp, startts, endts string, objectClient client.ObjectClient) bool {
+	checkSum := "chksum" // TODO, this won't work once we start putting out checksums
+	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
+	fullPath := fmt.Sprintf("%s/%s-%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts, checkSum)
+
+	result, _ := objectClient.ObjectExists(context.Background(), fullPath)
+
+	return result
+}
+
+func writeSBF(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, startfp, endfp, startts, endts string, objectClient client.ObjectClient) {
 	checkSum := "chksum"
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
+	objectStoragePath := fmt.Sprintf("bloomtests/%s/%s/%s", prefix, period, tenant)
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
 		helpers.ExitErr("error creating sbf dir", err)
 	}
@@ -437,6 +463,11 @@ func writeSBF(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, s
 	if err != nil {
 		helpers.ExitErr("writing sbf to file", err)
 	}
+
+	writeSBFToObjectStorage(sbf,
+		fmt.Sprintf("%s/%s-%s-%s-%s-%s", objectStoragePath, startfp, endfp, startts, endts, checkSum),
+		fmt.Sprintf("%s/%s-%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts, checkSum),
+		objectClient)
 }
 
 func writeSBFToFile(sbf *boom.ScalableBloomFilter, filename string) error {
@@ -455,4 +486,27 @@ func writeSBFToFile(sbf *boom.ScalableBloomFilter, filename string) error {
 	}
 	err = w.Flush()
 	return err
+}
+
+func writeSBFToObjectStorage(sbf *boom.ScalableBloomFilter, objectStorageFilename, localFilename string, objectClient client.ObjectClient) {
+	// Probably a better way to do this than to reopen the file, but it's late
+	file, err := os.Open(localFilename)
+	if err != nil {
+		level.Info(util_log.Logger).Log("error opening", localFilename, "error", err)
+	}
+
+	defer file.Close()
+
+	fileInfo, _ := file.Stat()
+	var size int64 = fileInfo.Size()
+
+	buffer := make([]byte, size)
+
+	// read file content to buffer
+	file.Read(buffer)
+
+	fileBytes := bytes.NewReader(buffer) // converted to io.ReadSeeker type
+
+	objectClient.PutObject(context.Background(), objectStorageFilename, fileBytes)
+	level.Info(util_log.Logger).Log("done writing", objectStorageFilename)
 }
