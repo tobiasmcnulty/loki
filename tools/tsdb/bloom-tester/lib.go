@@ -103,77 +103,80 @@ var experiments = []Experiment{
 		true,
 		onePctError,
 	),
-	NewExperiment(
-		"token=3skip0_error=1%_indexchunks=false",
-		three,
-		false,
-		onePctError,
-	),
+	/*
+		NewExperiment(
+			"token=3skip0_error=1%_indexchunks=false",
+			three,
+			false,
+			onePctError,
+		),
 
-	NewExperiment(
-		"token=3skip1_error=1%_indexchunks=true",
-		threeSkip1,
-		true,
-		onePctError,
-	),
-	NewExperiment(
-		"token=3skip1_error=1%_indexchunks=false",
-		threeSkip1,
-		false,
-		onePctError,
-	),
+		NewExperiment(
+			"token=3skip1_error=1%_indexchunks=true",
+			threeSkip1,
+			true,
+			onePctError,
+		),
+		NewExperiment(
+			"token=3skip1_error=1%_indexchunks=false",
+			threeSkip1,
+			false,
+			onePctError,
+		),
 
-	NewExperiment(
-		"token=3skip2_error=1%_indexchunks=true",
-		threeSkip2,
-		true,
-		onePctError,
-	),
-	NewExperiment(
-		"token=3skip2_error=1%_indexchunks=false",
-		threeSkip2,
-		false,
-		onePctError,
-	),
+		NewExperiment(
+			"token=3skip2_error=1%_indexchunks=true",
+			threeSkip2,
+			true,
+			onePctError,
+		),
+		NewExperiment(
+			"token=3skip2_error=1%_indexchunks=false",
+			threeSkip2,
+			false,
+			onePctError,
+		),
 
-	NewExperiment(
-		"token=3skip0_error=5%_indexchunks=true",
-		three,
-		true,
-		fivePctError,
-	),
-	NewExperiment(
-		"token=3skip0_error=5%_indexchunks=false",
-		three,
-		false,
-		fivePctError,
-	),
+		NewExperiment(
+			"token=3skip0_error=5%_indexchunks=true",
+			three,
+			true,
+			fivePctError,
+		),
+		NewExperiment(
+			"token=3skip0_error=5%_indexchunks=false",
+			three,
+			false,
+			fivePctError,
+		),
 
-	NewExperiment(
-		"token=3skip1_error=5%_indexchunks=true",
-		threeSkip1,
-		true,
-		fivePctError,
-	),
-	NewExperiment(
-		"token=3skip1_error=5%_indexchunks=false",
-		threeSkip1,
-		false,
-		fivePctError,
-	),
+		NewExperiment(
+			"token=3skip1_error=5%_indexchunks=true",
+			threeSkip1,
+			true,
+			fivePctError,
+		),
+		NewExperiment(
+			"token=3skip1_error=5%_indexchunks=false",
+			threeSkip1,
+			false,
+			fivePctError,
+		),
 
-	NewExperiment(
-		"token=3skip2_error=5%_indexchunks=true",
-		threeSkip2,
-		true,
-		fivePctError,
-	),
-	NewExperiment(
-		"token=3skip2_error=5%_indexchunks=false",
-		threeSkip2,
-		false,
-		fivePctError,
-	),
+		NewExperiment(
+			"token=3skip2_error=5%_indexchunks=true",
+			threeSkip2,
+			true,
+			fivePctError,
+		),
+		NewExperiment(
+			"token=3skip2_error=5%_indexchunks=false",
+			threeSkip2,
+			false,
+			fivePctError,
+		),
+
+	*/
 }
 
 func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShipper, client client.Client, tableName string, tenants []string, objectClient client.ObjectClient) error {
@@ -226,7 +229,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 								}
 
 								splitChks := splitSlice(chks, numTesters)
-								level.Info(util_log.Logger).Log("Number of splits", len(splitChks), "Items in split", len(splitChks[0]))
+								//level.Info(util_log.Logger).Log("Number of splits", len(splitChks), "Items in split", len(splitChks[0]))
 								var transformed []chunk.Chunk
 								//transformed := splitChks[testerNumber]
 
@@ -260,21 +263,23 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									context.Background(),
 									transformed,
 								)
-								helpers.ExitErr("getting chunks", err)
+								if err == nil {
 
-								// record raw chunk sizes
-								var chunkTotalUncompressedSize int
-								for _, c := range got {
-									chunkTotalUncompressedSize += c.Data.(*chunkenc.Facade).LokiChunk().UncompressedSize()
-								}
-								metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
-								n += len(got)
+									//helpers.ExitErr("getting chunks", err)
 
-								// iterate experiments
-								for experimentIdx, experiment := range experiments {
-									level.Info(util_log.Logger).Log("experiment", experiment.name)
+									// record raw chunk sizes
+									var chunkTotalUncompressedSize int
+									for _, c := range got {
+										chunkTotalUncompressedSize += c.Data.(*chunkenc.Facade).LokiChunk().UncompressedSize()
+									}
+									metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
+									n += len(got)
 
-									if !sbfFileExists("bloomtests",
+									// iterate experiments
+									for experimentIdx, experiment := range experiments {
+										//level.Info(util_log.Logger).Log("experiment", experiment.name)
+
+										/*if !sbfFileExists("bloomtests",
 										fmt.Sprint("experiment-", experimentIdx),
 										os.Getenv("BUCKET"),
 										tenant,
@@ -283,6 +288,8 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 										fmt.Sprint(firstTimeStamp),
 										fmt.Sprint(lastTimeStamp),
 										objectClient) {
+
+										*/
 
 										sbf := experiment.bloom()
 
@@ -296,7 +303,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												tokenizer = ChunkIDTokenizer(got[idx].ChunkRef, tokenizer)
 											}
 											lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
-											level.Info(util_log.Logger).Log("in range", idx)
+											//level.Info(util_log.Logger).Log("in range", idx)
 
 											// Only report on the last experiment since they run serially
 											/*if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
@@ -335,37 +342,42 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 											helpers.ExitErr("iterating chunks", itr.Error())
 										}
 
-										metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
-										fillRatio := sbf.FillRatio()
-										metrics.hammingWeightRatio.WithLabelValues(experiment.name).Observe(fillRatio)
-										metrics.estimatedCount.WithLabelValues(experiment.name).Observe(
-											float64(estimatedCount(sbf.Capacity(), sbf.FillRatio())),
-										)
-										metrics.lines.WithLabelValues(experiment.name).Add(lines)
-										metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
-										metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
+										if len(got) > 0 {
 
-										level.Info(util_log.Logger).Log("about to write to file")
-										//location, prefix, period, tenant, startfp, endfp, startts, endts
-										writeSBF(sbf,
-											os.Getenv("DIR"),
-											fmt.Sprint("experiment-", experimentIdx),
-											os.Getenv("BUCKET"),
-											tenant,
-											fmt.Sprint(firstFP),
-											fmt.Sprint(lastFP),
-											fmt.Sprint(firstTimeStamp),
-											fmt.Sprint(lastTimeStamp),
-											objectClient)
+											metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
+											fillRatio := sbf.FillRatio()
+											metrics.hammingWeightRatio.WithLabelValues(experiment.name).Observe(fillRatio)
+											metrics.estimatedCount.WithLabelValues(experiment.name).Observe(
+												float64(estimatedCount(sbf.Capacity(), sbf.FillRatio())),
+											)
+											metrics.lines.WithLabelValues(experiment.name).Add(lines)
+											metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
+											metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
 
-										//fmt.Sprint("/tmp/experiment-", experimentIdx))
-										if err != nil {
-											helpers.ExitErr("writing sbf to file", err)
+											//location, prefix, period, tenant, startfp, endfp, startts, endts
+											writeSBF(sbf,
+												os.Getenv("DIR"),
+												fmt.Sprint("experiment-", experimentIdx),
+												os.Getenv("BUCKET"),
+												tenant,
+												fmt.Sprint(firstFP),
+												fmt.Sprint(lastFP),
+												fmt.Sprint(firstTimeStamp),
+												fmt.Sprint(lastTimeStamp),
+												objectClient)
+
+											//fmt.Sprint("/tmp/experiment-", experimentIdx))
+											if err != nil {
+												helpers.ExitErr("writing sbf to file", err)
+											}
 										}
-									} else {
-										level.Info(util_log.Logger).Log("skipping as this is already in object storage")
+										/*
+											} else {
+												level.Info(util_log.Logger).Log("skipping as this is already in object storage")
+											}*/
 									}
-
+								} else {
+									level.Info(util_log.Logger).Log("error getting chunks", err)
 								}
 
 								metrics.seriesKept.Inc()
@@ -390,7 +402,8 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 	level.Info(util_log.Logger).Log("msg", "waiting for workers to finish")
 	pool.drain() // wait for workers to finishh
 	level.Info(util_log.Logger).Log("msg", "waiting for final scrape")
-	time.Sleep(30 * time.Second) // allow final scrape
+	time.Sleep(30 * time.Second)         // allow final scrape
+	time.Sleep(time.Duration(1<<63 - 1)) // wait forever
 	return nil
 }
 
