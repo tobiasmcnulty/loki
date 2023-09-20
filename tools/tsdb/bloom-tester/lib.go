@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"container/list"
 	"context"
 	"flag"
 	"fmt"
@@ -34,6 +35,15 @@ import (
 	"github.com/grafana/loki/tools/tsdb/helpers"
 )
 
+func testlru() {
+	cache := NewLRUCache(102400)
+	b := cache.Get("foo")
+	fmt.Println(b)
+	cache.Put("foo")
+	b = cache.Get("foo")
+	fmt.Println(b)
+
+}
 func execute() {
 	conf, svc, bucket, err := helpers.Setup()
 	helpers.ExitErr("setting up", err)
@@ -279,102 +289,110 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									for experimentIdx, experiment := range experiments {
 										//level.Info(util_log.Logger).Log("experiment", experiment.name)
 
-										/*if !sbfFileExists("bloomtests",
-										fmt.Sprint("experiment-", experimentIdx),
-										os.Getenv("BUCKET"),
-										tenant,
-										fmt.Sprint(firstFP),
-										fmt.Sprint(lastFP),
-										fmt.Sprint(firstTimeStamp),
-										fmt.Sprint(lastTimeStamp),
-										objectClient) {
+										if !sbfFileExists("bloomtests",
+											fmt.Sprint("experiment-", experimentIdx),
+											os.Getenv("BUCKET"),
+											tenant,
+											fmt.Sprint(firstFP),
+											fmt.Sprint(lastFP),
+											fmt.Sprint(firstTimeStamp),
+											fmt.Sprint(lastTimeStamp),
+											objectClient) {
 
-										*/
+											sbf := experiment.bloom()
+											cache := NewLRUCache(102400)
 
-										sbf := experiment.bloom()
-
-										// Iterate chunks
-										var (
-											lines, inserts, collisions float64
-										)
-										for idx := range got {
-											tokenizer := experiment.tokenizer
-											if experiment.encodeChunkID {
-												tokenizer = ChunkIDTokenizer(got[idx].ChunkRef, tokenizer)
-											}
-											lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
-											//level.Info(util_log.Logger).Log("in range", idx)
-
-											// Only report on the last experiment since they run serially
-											/*if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
-											estimatedProgress := float64(fp) / float64(model.Fingerprint(math.MaxUint64)) * 100.
-											level.Info(util_log.Logger).Log(
-												"msg", "iterated",
-												"progress", fmt.Sprintf("%.2f%%", estimatedProgress),
-												"chunks", len(chks),
-												"series", ls.String(),
+											// Iterate chunks
+											var (
+												lines, inserts, collisions float64
 											)
-											}*/
+											for idx := range got {
+												tokenizer := experiment.tokenizer
+												if experiment.encodeChunkID {
+													tokenizer = ChunkIDTokenizer(got[idx].ChunkRef, tokenizer)
+												}
+												lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
+												//level.Info(util_log.Logger).Log("in range", idx)
 
-											itr, err := lc.Iterator(
-												context.Background(),
-												time.Unix(0, 0),
-												time.Unix(0, math.MaxInt64),
-												logproto.FORWARD,
-												log.NewNoopPipeline().ForStream(ls),
-											)
-											helpers.ExitErr("getting iterator", err)
+												// Only report on the last experiment since they run serially
+												/*if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
+												estimatedProgress := float64(fp) / float64(model.Fingerprint(math.MaxUint64)) * 100.
+												level.Info(util_log.Logger).Log(
+													"msg", "iterated",
+													"progress", fmt.Sprintf("%.2f%%", estimatedProgress),
+													"chunks", len(chks),
+													"series", ls.String(),
+												)
+												}*/
 
-											for itr.Next() && itr.Error() == nil {
-												toks := tokenizer.Tokens(itr.Entry().Line)
-												lines++
-												for _, tok := range toks {
-													for _, str := range []string{tok.Key, tok.Value} {
-														if str != "" {
-															if dup := sbf.TestAndAdd([]byte(str)); dup {
-																collisions++
+												itr, err := lc.Iterator(
+													context.Background(),
+													time.Unix(0, 0),
+													time.Unix(0, math.MaxInt64),
+													logproto.FORWARD,
+													log.NewNoopPipeline().ForStream(ls),
+												)
+												helpers.ExitErr("getting iterator", err)
+
+												for itr.Next() && itr.Error() == nil {
+													toks := tokenizer.Tokens(itr.Entry().Line)
+													lines++
+													for _, tok := range toks {
+														for _, str := range []string{tok.Key, tok.Value} {
+															if str != "" {
+																if !cache.Get(str) {
+																	//level.Info(util_log.Logger).Log("cache miss", str)
+
+																	cache.Put(str)
+																	if dup := sbf.TestAndAdd([]byte(str)); dup {
+																		collisions++
+																	}
+																	inserts++
+																} else {
+																	//level.Info(util_log.Logger).Log("skipping as this is already in cache", str)
+
+																}
 															}
-															inserts++
 														}
 													}
 												}
+												helpers.ExitErr("iterating chunks", itr.Error())
 											}
-											helpers.ExitErr("iterating chunks", itr.Error())
-										}
 
-										if len(got) > 0 {
+											if len(got) > 0 {
 
-											metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
-											fillRatio := sbf.FillRatio()
-											metrics.hammingWeightRatio.WithLabelValues(experiment.name).Observe(fillRatio)
-											metrics.estimatedCount.WithLabelValues(experiment.name).Observe(
-												float64(estimatedCount(sbf.Capacity(), sbf.FillRatio())),
-											)
-											metrics.lines.WithLabelValues(experiment.name).Add(lines)
-											metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
-											metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
+												metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
+												fillRatio := sbf.FillRatio()
+												metrics.hammingWeightRatio.WithLabelValues(experiment.name).Observe(fillRatio)
+												metrics.estimatedCount.WithLabelValues(experiment.name).Observe(
+													float64(estimatedCount(sbf.Capacity(), sbf.FillRatio())),
+												)
+												metrics.lines.WithLabelValues(experiment.name).Add(lines)
+												metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
+												metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
 
-											//location, prefix, period, tenant, startfp, endfp, startts, endts
-											writeSBF(sbf,
-												os.Getenv("DIR"),
-												fmt.Sprint("experiment-", experimentIdx),
-												os.Getenv("BUCKET"),
-												tenant,
-												fmt.Sprint(firstFP),
-												fmt.Sprint(lastFP),
-												fmt.Sprint(firstTimeStamp),
-												fmt.Sprint(lastTimeStamp),
-												objectClient)
+												//location, prefix, period, tenant, startfp, endfp, startts, endts
+												writeSBF(sbf,
+													os.Getenv("DIR"),
+													fmt.Sprint("experiment-", experimentIdx),
+													os.Getenv("BUCKET"),
+													tenant,
+													fmt.Sprint(firstFP),
+													fmt.Sprint(lastFP),
+													fmt.Sprint(firstTimeStamp),
+													fmt.Sprint(lastTimeStamp),
+													objectClient)
 
-											//fmt.Sprint("/tmp/experiment-", experimentIdx))
-											if err != nil {
-												helpers.ExitErr("writing sbf to file", err)
-											}
-										}
-										/*
+												if err != nil {
+													helpers.ExitErr("writing sbf to file", err)
+												}
 											} else {
-												level.Info(util_log.Logger).Log("skipping as this is already in object storage")
-											}*/
+												//level.Info(util_log.Logger).Log("len got < 0")
+											}
+
+										} else {
+											level.Info(util_log.Logger).Log("skipping as this is already in object storage")
+										}
 									}
 								} else {
 									level.Info(util_log.Logger).Log("error getting chunks", err)
@@ -522,4 +540,60 @@ func writeSBFToObjectStorage(sbf *boom.ScalableBloomFilter, objectStorageFilenam
 
 	objectClient.PutObject(context.Background(), objectStorageFilename, fileBytes)
 	level.Info(util_log.Logger).Log("done writing", objectStorageFilename)
+}
+
+type LRUCache struct {
+	capacity int
+	cache    map[string]*list.Element
+	list     *list.List
+	//mutex    sync.Mutex
+}
+
+type Entry struct {
+	key string
+}
+
+func NewLRUCache(capacity int) *LRUCache {
+	return &LRUCache{
+		capacity: capacity,
+		cache:    make(map[string]*list.Element),
+		list:     list.New(),
+	}
+}
+
+func (c *LRUCache) Get(key string) bool {
+	//c.mutex.Lock()
+	//defer c.mutex.Unlock()
+
+	if elem, ok := c.cache[key]; ok {
+		// Move the accessed element to the front of the list
+		c.list.MoveToFront(elem)
+		return true
+	}
+	return false
+}
+
+func (c *LRUCache) Put(key string) {
+	//c.mutex.Lock()
+	//defer c.mutex.Unlock()
+
+	if elem, ok := c.cache[key]; ok {
+		// If the key already exists, move it to the front
+		c.list.MoveToFront(elem)
+	} else {
+		// If the cache is full, remove the least recently used element
+		if len(c.cache) >= c.capacity {
+			// Get the least recently used element from the back of the list
+			tailElem := c.list.Back()
+			if tailElem != nil {
+				deletedEntry := c.list.Remove(tailElem).(*Entry)
+				delete(c.cache, deletedEntry.key)
+			}
+		}
+
+		// Add the new key to the cache and the front of the list
+		newEntry := &Entry{key}
+		newElem := c.list.PushFront(newEntry)
+		c.cache[key] = newElem
+	}
 }
