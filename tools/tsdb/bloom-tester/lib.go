@@ -288,9 +288,9 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									// iterate experiments
 									for experimentIdx, experiment := range experiments {
 										//level.Info(util_log.Logger).Log("experiment", experiment.name)
-
+										bucketPrefix := "experiment-100000-"
 										if !sbfFileExists("bloomtests",
-											fmt.Sprint("experiment-", experimentIdx),
+											fmt.Sprint(bucketPrefix, experimentIdx),
 											os.Getenv("BUCKET"),
 											tenant,
 											fmt.Sprint(firstFP),
@@ -300,7 +300,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 											objectClient) {
 
 											sbf := experiment.bloom()
-											cache := NewLRUCache(102400)
+											cache := NewLRUCache(100000)
 
 											// Iterate chunks
 											var (
@@ -374,7 +374,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												//location, prefix, period, tenant, startfp, endfp, startts, endts
 												writeSBF(sbf,
 													os.Getenv("DIR"),
-													fmt.Sprint("experiment-", experimentIdx),
+													fmt.Sprint(bucketPrefix, experimentIdx),
 													os.Getenv("BUCKET"),
 													tenant,
 													fmt.Sprint(firstFP),
@@ -390,9 +390,9 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												//level.Info(util_log.Logger).Log("len got < 0")
 											}
 
-										} else {
+										} /*else {
 											level.Info(util_log.Logger).Log("skipping as this is already in object storage")
-										}
+										}*/
 									}
 								} else {
 									level.Info(util_log.Logger).Log("error getting chunks", err)
