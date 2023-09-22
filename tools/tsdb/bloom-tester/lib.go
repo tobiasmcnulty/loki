@@ -44,6 +44,49 @@ func testlru() {
 	fmt.Println(b)
 
 }
+
+type cRef struct {
+	fingerprint uint64
+	userID      string
+	From        int64 //github.com/prometheus/common/model.Tim
+	Through     int64
+	Checksum    uint32
+}
+
+func myTokenizer(chk cRef, t Tokenizer) *WrappedTokenizer {
+	return &WrappedTokenizer{
+		t: t,
+		f: func(tok Token) Token {
+			tok.Key = fmt.Sprintf("%d:%d:%d:%s", chk.From, chk.Through, chk.Checksum, tok.Key)
+			return tok
+		},
+	}
+}
+func testTokenizer() {
+	var cRef = cRef{
+		userID:   "myUserId",
+		From:     0,
+		Through:  10000000,
+		Checksum: 123455,
+	}
+	//var logproto.ChunkRef chunkref = {}
+	//tokenizer := ChunkIDTokenizer(chunkref, three)
+
+	/*
+		toks := three.Tokens("test line")
+		for _, tok := range toks {
+			fmt.Println(tok)
+		}
+
+	*/
+
+	mt := myTokenizer(cRef, three)
+	toks := mt.Tokens("test line")
+	for _, tok := range toks {
+		fmt.Println(tok)
+	}
+}
+
 func execute() {
 	conf, svc, bucket, err := helpers.Setup()
 	helpers.ExitErr("setting up", err)
@@ -288,7 +331,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									// iterate experiments
 									for experimentIdx, experiment := range experiments {
 										//level.Info(util_log.Logger).Log("experiment", experiment.name)
-										bucketPrefix := "experiment-100000-"
+										bucketPrefix := "experiment-100000-tokenizer-slices2-"
 										if !sbfFileExists("bloomtests",
 											fmt.Sprint(bucketPrefix, experimentIdx),
 											os.Getenv("BUCKET"),

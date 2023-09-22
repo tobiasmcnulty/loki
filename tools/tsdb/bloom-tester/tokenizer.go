@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/grafana/loki/pkg/logproto"
@@ -46,6 +47,7 @@ type ngramTokenizer struct {
 	buffers        [][]rune // circular buffers used for ngram generation
 }
 
+/*
 func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
 	t := &ngramTokenizer{
 		min:  min,
@@ -59,8 +61,26 @@ func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
 	return t
 
 }
+*/
+
+func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
+	capacity := max - min
+	t := &ngramTokenizer{
+		min:     min,
+		max:     max,
+		skip:    skip,
+		buffers: make([][]rune, capacity),
+	}
+	for i := t.min; i < t.max; i++ {
+		t.buffers[i-t.min] = make([]rune, i)
+	}
+
+	return t
+}
 
 func (t *ngramTokenizer) Tokens(line string) (res []Token) {
+	//res = make([]Token, 0, len(line)-t.max+1)
+	// TODO: optimize the allocation of 'res'
 	var i int // rune index (not position that is measured in the range loop)
 	for _, r := range line {
 
@@ -98,7 +118,7 @@ type WrappedTokenizer struct {
 
 func (w *WrappedTokenizer) Tokens(line string) []Token {
 	toks := w.t.Tokens(line)
-	res := make([]Token, 0, len(toks))
+	res := make([]Token, 0, len(toks)*2)
 	for _, tok := range toks {
 		res = append(res, w.f(tok))
 	}
@@ -106,10 +126,15 @@ func (w *WrappedTokenizer) Tokens(line string) []Token {
 }
 
 func ChunkIDTokenizer(chk logproto.ChunkRef, t Tokenizer) *WrappedTokenizer {
+	prefix := fmt.Sprintf("%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
 	return &WrappedTokenizer{
 		t: t,
 		f: func(tok Token) Token {
-			tok.Key = fmt.Sprintf("%d:%d:%d:%s", chk.From, chk.Through, chk.Checksum, tok.Key)
+			var builder strings.Builder
+			builder.WriteString(prefix)
+			builder.WriteString(tok.Key)
+			//tok.Key = fmt.Sprintf("%s:%s", prefix, tok.Key)
+			tok.Key = builder.String()
 			return tok
 		},
 	}

@@ -16,12 +16,12 @@ func TestNGrams(t *testing.T) {
 		{
 			desc:  "empty",
 			input: "",
-			exp:   nil,
+			exp:   []Token{},
 		},
 		{
 			desc:  "single char",
 			input: "a",
-			exp:   nil,
+			exp:   []Token{},
 		},
 		{
 			desc:  "two chars",
