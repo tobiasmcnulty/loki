@@ -331,7 +331,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									// iterate experiments
 									for experimentIdx, experiment := range experiments {
 										//level.Info(util_log.Logger).Log("experiment", experiment.name)
-										bucketPrefix := "experiment-100000-tokenizer-slices2-"
+										bucketPrefix := "experiment-100000-tokenizer-slices3-"
 										if !sbfFileExists("bloomtests",
 											fmt.Sprint(bucketPrefix, experimentIdx),
 											os.Getenv("BUCKET"),

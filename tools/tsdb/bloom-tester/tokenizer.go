@@ -79,8 +79,7 @@ func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
 }
 
 func (t *ngramTokenizer) Tokens(line string) (res []Token) {
-	//res = make([]Token, 0, len(line)-t.max+1)
-	// TODO: optimize the allocation of 'res'
+	res = make([]Token, 0, len(line)-t.min+1)
 	var i int // rune index (not position that is measured in the range loop)
 	for _, r := range line {
 
@@ -131,6 +130,7 @@ func ChunkIDTokenizer(chk logproto.ChunkRef, t Tokenizer) *WrappedTokenizer {
 		t: t,
 		f: func(tok Token) Token {
 			var builder strings.Builder
+			builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
 			builder.WriteString(prefix)
 			builder.WriteString(tok.Key)
 			//tok.Key = fmt.Sprintf("%s:%s", prefix, tok.Key)
