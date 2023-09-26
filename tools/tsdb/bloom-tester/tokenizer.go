@@ -45,6 +45,7 @@ type ngramTokenizer struct {
 	// [min,max) exclusivity
 	min, max, skip int
 	buffers        [][]rune // circular buffers used for ngram generation
+	runeBuffer     []byte   // buffer used for token generation
 }
 
 func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
@@ -58,6 +59,7 @@ func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
 	for i := t.min; i < t.max; i++ {
 		t.buffers[i-t.min] = make([]rune, i)
 	}
+	t.runeBuffer = make([]byte, 0, max*4)
 
 	return t
 }
@@ -76,8 +78,8 @@ func (t *ngramTokenizer) Tokens(line string) (res []Token) {
 			t.buffers[j][pos] = r
 
 			if i >= n-1 && (i+1-n)%(t.skip+1) == 0 {
-				ngram := reassemble(t.buffers[j], (i+1)%n)
-				res = append(res, Token{Key: string(ngram), Value: ""})
+				t.runeBuffer = reassemble(t.buffers[j], (i+1)%n, t.runeBuffer)
+				res = append(res, Token{Key: string(t.tokenBuffer), Value: ""})
 			}
 		}
 		i++
@@ -85,13 +87,13 @@ func (t *ngramTokenizer) Tokens(line string) (res []Token) {
 	return
 }
 
-func reassemble(buf []rune, pos int) []byte {
-	res := make([]byte, 0, len(buf)*4) // 4 bytes per rune (i32)
+func reassemble(buf []rune, pos int, result []byte) []byte {
+	result = result[:0] // Reset the result slice
 	for i := 0; i < len(buf); i++ {
 		cur := (pos + i) % len(buf)
-		res = utf8.AppendRune(res, buf[cur])
+		result = utf8.AppendRune(result, buf[cur])
 	}
-	return res
+	return result
 }
 
 type WrappedTokenizer struct {
