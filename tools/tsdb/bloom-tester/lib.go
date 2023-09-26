@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"container/list"
 	"context"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"github.com/grafana/dskit/services"
@@ -89,8 +90,8 @@ func testlru() {
 			cache.Get(strconv.Itoa(i))
 		}
 	*/
-	cache := NewLRUCache4(20)
-	for i := 0; i < 20; i++ {
+	cache := NewLRUCache4(2)
+	for i := 0; i < 2; i++ {
 		cache.Put([]byte(strconv.Itoa(i)))
 	}
 	for i := 0; i < num; i++ {
@@ -120,6 +121,8 @@ func myTokenizer(chk cRef, t Tokenizer) *WrappedTokenizer {
 			},
 		}*/
 	p := make([]byte, 0, 256)
+	i64buf := make([]byte, binary.MaxVarintLen64)
+	i32buf := make([]byte, 4)
 
 	//buf := make([]byte, binary.MaxVarintLen64)
 
@@ -139,25 +142,41 @@ func myTokenizer(chk cRef, t Tokenizer) *WrappedTokenizer {
 		p = append(p, 58)
 
 	*/
-	p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+	binary.PutVarint(i64buf, chk.From)
+	p = append(p, i64buf...)
+	p = append(p, 58)
+	binary.PutVarint(i64buf, chk.Through)
+	p = append(p, i64buf...)
+	p = append(p, 58)
+	binary.LittleEndian.PutUint32(i32buf, chk.Checksum)
+	p = append(p, i32buf...)
+	p = append(p, 58)
+	//p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
 
 	//b := buf[:n]
 	b := strings.Builder{}
 	b.Grow(256)
 	return &WrappedTokenizer{
 		t: t,
-		f: func(tok Token) Token {
+		f: func(tok TokenB) TokenB {
 			//var builder strings.Builder
 			//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
-			b.Reset()
-			b.WriteString(string(p))
-			b.WriteString(tok.Key)
-			tok.Key = b.String()
+			//b.Reset()
+			//b.WriteString(string(p))
+			//b.WriteString(tok.Key)
+			//tok.Key = b.String()
+			//oldTok := tok.Key
+			//tok.Key = tok.Key[:0]
+			//tok.Key = append(tok.Key, p...)
+			//tok.Key = append(tok.Key, oldTok...)
+			tok.Key = append(append(tok.Key, p...), tok.Key...)[len(tok.Key):]
 			return tok
 		},
-		tokenBuffer: make([]Token, 0, 1024),
-		builder:     b,
-		prefix:      p,
+		tokenBuffer: make([]TokenB, 0, 1024),
+		//builder:     b,
+		prefix: p,
+		i64buf: i64buf,
+		i32buf: i32buf,
 	}
 }
 
@@ -193,19 +212,33 @@ func (w *WrappedTokenizer) reinit2(chk cRef) {
 
 	*/
 	w.prefix = w.prefix[:0]
-	w.prefix = fmt.Appendf(w.prefix, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+	//w.prefix = fmt.Appendf(w.prefix, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+	binary.PutVarint(w.i64buf, chk.From)
+	w.prefix = append(w.prefix, w.i64buf...)
+	w.prefix = append(w.prefix, 58)
+	binary.PutVarint(w.i64buf, chk.Through)
+	w.prefix = append(w.prefix, w.i64buf...)
+	w.prefix = append(w.prefix, 58)
+	binary.LittleEndian.PutUint32(w.i32buf, chk.Checksum)
+	w.prefix = append(w.prefix, w.i32buf...)
+	w.prefix = append(w.prefix, 58)
 
 	//w.prefix = []byte(fmt.Sprintf("%d:%d:%d:", chk.From, chk.Through, chk.Checksum))
 	//p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
 
 	fmt.Println("reinit2")
-	w.f = func(tok Token) Token {
+	w.f = func(tok TokenB) TokenB {
 		//var builder strings.Builder
 		//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
-		w.builder.Reset()
-		w.builder.WriteString(string(w.prefix))
-		w.builder.WriteString(tok.Key)
-		tok.Key = w.builder.String()
+		//w.builder.Reset()
+		//w.builder.WriteString(string(w.prefix))
+		//w.builder.WriteString(tok.Key)
+		//oldTok := tok.Key
+		tok.Key = append(append(tok.Key, w.prefix...), tok.Key...)[len(tok.Key):]
+		//tok.Key = tok.Key[:0]
+		//tok.Key = append(tok.Key, w.prefix...)
+		//tok.Key = append(tok.Key, oldTok...)
+		//tok.Key = w.builder.String()
 		return tok
 	}
 
@@ -406,7 +439,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 	//reportEvery := 10 // report every n chunks
 	//pool := newPool(runtime.NumCPU())
 	pool := newPool(1) // going to use pods in the statefulset for the parallelism
-	cache := NewLRUCache(100000)
+	cache := NewLRUCache4(100000)
 	chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
 
 	for _, tenant := range tenants {
@@ -490,7 +523,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									// iterate experiments
 									for experimentIdx, experiment := range experiments {
 										//level.Info(util_log.Logger).Log("experiment", experiment.name)
-										bucketPrefix := "experiment-100000-clearlru-reusetb2-reusetokenizer-resetbuilder5-"
+										bucketPrefix := "experiment-100000-doingbytes-append2-"
 										if !sbfFileExists("bloomtests",
 											fmt.Sprint(bucketPrefix, experimentIdx),
 											os.Getenv("BUCKET"),
@@ -545,22 +578,24 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 													toks := tokenizer.Tokens(itr.Entry().Line)
 													lines++
 													for _, tok := range toks {
-														for _, str := range []string{tok.Key, tok.Value} {
-															if str != "" {
-																if !cache.Get(str) {
-																	//level.Info(util_log.Logger).Log("cache miss", str)
+														//level.Info(util_log.Logger).Log("tok key", tok.Key)
+														//for _, str := range []string{tok.Key, tok.Value} {
+														if tok.Key != nil {
+															//if str != "" {
+															if !cache.Get(tok.Key) {
+																//level.Info(util_log.Logger).Log("cache miss", str)
 
-																	cache.Put(str)
-																	if dup := sbf.TestAndAdd([]byte(str)); dup {
-																		collisions++
-																	}
-																	inserts++
-																} else {
-																	//level.Info(util_log.Logger).Log("skipping as this is already in cache", str)
-
+																cache.Put(tok.Key)
+																if dup := sbf.TestAndAdd(tok.Key); dup {
+																	collisions++
 																}
+																inserts++
+															} else {
+																//level.Info(util_log.Logger).Log("skipping as this is already in cache", str)
+
 															}
 														}
+
 													}
 												}
 												helpers.ExitErr("iterating chunks", itr.Error())
@@ -1015,14 +1050,14 @@ func NewLRUCache4(capacity int) *LRUCache4 {
 	}
 }
 
-func (c *LRUCache4) Get(value []byte) (bool, string) {
+func (c *LRUCache4) Get(value []byte) bool {
 	key := string(value)
 	if elem, ok := c.cache[key]; ok {
 		// Move the accessed element to the front of the list
 		c.list.MoveToFront(elem)
-		return true, key
+		return true
 	}
-	return false, ""
+	return false
 }
 
 func (c *LRUCache4) GetString(key string) (bool, []byte) {
