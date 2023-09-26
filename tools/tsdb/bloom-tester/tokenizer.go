@@ -135,6 +135,7 @@ func ChunkIDTokenizer(chk logproto.ChunkRef, t Tokenizer) *WrappedTokenizer {
 		f: func(tok Token) Token {
 			//var builder strings.Builder
 			//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
+			b.Reset()
 			b.WriteString(string(p))
 			b.WriteString(tok.Key)
 			tok.Key = b.String()
@@ -161,6 +162,7 @@ func ChunkIDTokenizerHalfInit(t Tokenizer) *WrappedTokenizer {
 func (w *WrappedTokenizer) reinit(chk logproto.ChunkRef) {
 	//prefix := fmt.Sprintf("%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
 	w.prefix = w.prefix[:0]
+
 	w.prefix = fmt.Appendf(w.prefix, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
 	w.f = func(tok Token) Token {
 		//var builder strings.Builder

@@ -111,23 +111,99 @@ type cRef struct {
 }
 
 func myTokenizer(chk cRef, t Tokenizer) *WrappedTokenizer {
+	/*
+		return &WrappedTokenizer{
+			t: t,
+			f: func(tok Token) Token {
+				tok.Key = fmt.Sprintf("%d:%d:%d:%s", chk.From, chk.Through, chk.Checksum, tok.Key)
+				return tok
+			},
+		}*/
+	p := make([]byte, 0, 256)
+
+	//buf := make([]byte, binary.MaxVarintLen64)
+
+	//buf := [binary.MaxVarintLen64]byte{}
+	//p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+	/*
+		fmt.Println(chk.From)
+		fmt.Println(len(buf))
+		_ = binary.PutVarint(buf, chk.From)
+		p = append(p, buf...)
+		p = append(p, 58)
+		_ = binary.PutVarint(buf, chk.Through)
+		p = append(p, buf...)
+		p = append(p, 58)
+		_ = binary.PutVarint(buf, int64(chk.Checksum))
+		p = append(p, buf...)
+		p = append(p, 58)
+
+	*/
+	p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+
+	//b := buf[:n]
+	b := strings.Builder{}
+	b.Grow(256)
 	return &WrappedTokenizer{
 		t: t,
 		f: func(tok Token) Token {
-			tok.Key = fmt.Sprintf("%d:%d:%d:%s", chk.From, chk.Through, chk.Checksum, tok.Key)
+			//var builder strings.Builder
+			//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
+			b.Reset()
+			b.WriteString(string(p))
+			b.WriteString(tok.Key)
+			tok.Key = b.String()
 			return tok
 		},
+		tokenBuffer: make([]Token, 0, 1024),
+		builder:     b,
+		prefix:      p,
 	}
 }
 
 func (w *WrappedTokenizer) reinit2(chk cRef) {
-	prefix := fmt.Sprintf("%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+	// convert int64 to []byte
+	//buf := make([]byte, binary.MaxVarintLen64)
+	//n := binary.PutVarint(buf, num)
+	//b := buf[:n]
 
+	/*
+		w.prefix = w.prefix[:0]
+		b := [4]byte{
+			byte(0xff & chk.From),
+			byte(0xff & chk.From),
+			byte(0xff & chk.From),
+			byte(0xff & chk.From)}
+		w.prefix = append(w.prefix, b[:]...)
+		w.prefix = append(w.prefix, 58)
+		b = [4]byte{
+			byte(0xff & chk.Through),
+			byte(0xff & chk.Through),
+			byte(0xff & chk.Through),
+			byte(0xff & chk.Through)}
+		w.prefix = append(w.prefix, b[:]...)
+		w.prefix = append(w.prefix, 58)
+		b = [4]byte{
+			byte(0xff & chk.Checksum),
+			byte(0xff & chk.Checksum),
+			byte(0xff & chk.Checksum),
+			byte(0xff & chk.Checksum)}
+		w.prefix = append(w.prefix, b[:]...)
+		w.prefix = append(w.prefix, 58)
+
+	*/
+	w.prefix = w.prefix[:0]
+	w.prefix = fmt.Appendf(w.prefix, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+
+	//w.prefix = []byte(fmt.Sprintf("%d:%d:%d:", chk.From, chk.Through, chk.Checksum))
+	//p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+
+	fmt.Println("reinit2")
 	w.f = func(tok Token) Token {
 		//var builder strings.Builder
 		//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
 		w.builder.Reset()
-		w.builder.WriteString(prefix)
+		w.builder.WriteString(string(w.prefix))
 		w.builder.WriteString(tok.Key)
 		tok.Key = w.builder.String()
 		return tok
@@ -141,7 +217,7 @@ func testTokenizer() {
 
 	var cRef = cRef{
 		userID:   "myUserId",
-		From:     0,
+		From:     65,
 		Through:  10000000,
 		Checksum: 123455,
 	}
@@ -149,16 +225,9 @@ func testTokenizer() {
 	//var logproto.ChunkRef chunkref = {}
 	//tokenizer := ChunkIDTokenizer(chunkref, three)
 
-	/*
-		toks := three.Tokens("test line")
-		for _, tok := range toks {
-			fmt.Println(tok)
-		}
-
-	*/
-
 	mt := myTokenizer(cRef, three)
 	toks := mt.Tokens("test line")
+
 	for _, tok := range toks {
 		fmt.Println(tok)
 	}
@@ -169,7 +238,7 @@ func testTokenizer() {
 	cRef.Checksum = 4442115
 
 	mt.reinit2(cRef)
-	toks = mt.Tokens("test line")
+	toks = mt.Tokens("second line")
 	for _, tok := range toks {
 		fmt.Println(tok)
 	}
@@ -421,7 +490,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									// iterate experiments
 									for experimentIdx, experiment := range experiments {
 										//level.Info(util_log.Logger).Log("experiment", experiment.name)
-										bucketPrefix := "experiment-100000-clearlru-reusetb2-reusetokenizer-resetbuilder4-"
+										bucketPrefix := "experiment-100000-clearlru-reusetb2-reusetokenizer-resetbuilder5-"
 										if !sbfFileExists("bloomtests",
 											fmt.Sprint(bucketPrefix, experimentIdx),
 											os.Getenv("BUCKET"),
