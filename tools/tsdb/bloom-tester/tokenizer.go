@@ -13,6 +13,13 @@ type Token struct {
 	// Either key or value may be empty
 	Key, Value string
 }
+
+/*
+type TokenB struct {
+	Key, Value []byte
+}
+*/
+
 type Tokenizer interface {
 	Tokens(line string) []Token
 }
@@ -100,30 +107,69 @@ func reassemble(buf []rune, pos int, result []byte) []byte {
 }
 
 type WrappedTokenizer struct {
-	t Tokenizer
-	f func(Token) Token
+	t           Tokenizer
+	f           func(Token) Token
+	tokenBuffer []Token
+	builder     strings.Builder
+	prefix      []byte
 }
 
 func (w *WrappedTokenizer) Tokens(line string) []Token {
+	w.tokenBuffer = w.tokenBuffer[:0] // Reset the result slice
 	toks := w.t.Tokens(line)
-	res := make([]Token, 0, len(toks)*2)
+	//res := make([]Token, 0, len(toks)*2)
 	for _, tok := range toks {
-		res = append(res, w.f(tok))
+		w.tokenBuffer = append(w.tokenBuffer, w.f(tok))
 	}
-	return append(res, toks...)
+	return append(w.tokenBuffer, toks...)
 }
 
 func ChunkIDTokenizer(chk logproto.ChunkRef, t Tokenizer) *WrappedTokenizer {
-	prefix := fmt.Sprintf("%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+	//prefix := fmt.Sprintf("%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+	p := make([]byte, 0, 256)
+	b := strings.Builder{}
+	p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+	b.Grow(256)
 	return &WrappedTokenizer{
 		t: t,
 		f: func(tok Token) Token {
-			var builder strings.Builder
-			builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
-			builder.WriteString(prefix)
-			builder.WriteString(tok.Key)
-			tok.Key = builder.String()
+			//var builder strings.Builder
+			//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
+			b.WriteString(string(p))
+			b.WriteString(tok.Key)
+			tok.Key = b.String()
 			return tok
 		},
+		tokenBuffer: make([]Token, 0, 1024),
+		builder:     b,
+		prefix:      p,
 	}
+}
+
+func ChunkIDTokenizerHalfInit(t Tokenizer) *WrappedTokenizer {
+	b := strings.Builder{}
+	b.Grow(256)
+	p := make([]byte, 0, 256)
+	return &WrappedTokenizer{
+		t:           t,
+		tokenBuffer: make([]Token, 0, 1024),
+		builder:     b,
+		prefix:      p,
+	}
+}
+
+func (w *WrappedTokenizer) reinit(chk logproto.ChunkRef) {
+	//prefix := fmt.Sprintf("%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+	w.prefix = w.prefix[:0]
+	w.prefix = fmt.Appendf(w.prefix, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+	w.f = func(tok Token) Token {
+		//var builder strings.Builder
+		//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
+		w.builder.Reset()
+		w.builder.WriteString(string(w.prefix))
+		w.builder.WriteString(tok.Key)
+		tok.Key = w.builder.String()
+		return tok
+	}
+
 }

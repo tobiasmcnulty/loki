@@ -13,7 +13,6 @@ import (
 	"hash/fnv"
 	"math"
 	"os"
-	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -46,7 +45,7 @@ func testlru() {
 		b = cache.Get("foo")
 		fmt.Println(b)
 	*/
-	num := 1000000
+	num := 10
 	/*
 		f, _ := os.Create("BenchmarkLRU1Put.prof")
 		pprof.StartCPUProfile(f)
@@ -78,15 +77,27 @@ func testlru() {
 		}
 
 	*/
-	f, _ := os.Create("BenchmarkLRU2Get.prof")
-	pprof.StartCPUProfile(f)
-	defer pprof.StopCPUProfile()
-	cache := NewLRUCache2(1024)
-	for i := 0; i < 1024; i++ {
-		cache.Put(strconv.Itoa(i))
+	/*
+		f, _ := os.Create("BenchmarkLRU2Get.prof")
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+		cache := NewLRUCache2(1024)
+		for i := 0; i < 1024; i++ {
+			cache.Put(strconv.Itoa(i))
+		}
+		for i := 0; i < num; i++ {
+			cache.Get(strconv.Itoa(i))
+		}
+	*/
+	cache := NewLRUCache4(20)
+	for i := 0; i < 20; i++ {
+		cache.Put([]byte(strconv.Itoa(i)))
 	}
 	for i := 0; i < num; i++ {
-		cache.Get(strconv.Itoa(i))
+		fmt.Println(cache.GetString(strconv.Itoa(i)))
+	}
+	for i := 0; i < num; i++ {
+		fmt.Println(cache.Get([]byte(strconv.Itoa(i))))
 	}
 
 }
@@ -108,13 +119,33 @@ func myTokenizer(chk cRef, t Tokenizer) *WrappedTokenizer {
 		},
 	}
 }
+
+func (w *WrappedTokenizer) reinit2(chk cRef) {
+	prefix := fmt.Sprintf("%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
+
+	w.f = func(tok Token) Token {
+		//var builder strings.Builder
+		//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
+		w.builder.Reset()
+		w.builder.WriteString(prefix)
+		w.builder.WriteString(tok.Key)
+		tok.Key = w.builder.String()
+		return tok
+	}
+
+}
 func testTokenizer() {
+	//f, _ := os.Create("BenchmarkTokenizer.prof")
+	//pprof.StartCPUProfile(f)
+	//defer pprof.StopCPUProfile()
+
 	var cRef = cRef{
 		userID:   "myUserId",
 		From:     0,
 		Through:  10000000,
 		Checksum: 123455,
 	}
+
 	//var logproto.ChunkRef chunkref = {}
 	//tokenizer := ChunkIDTokenizer(chunkref, three)
 
@@ -128,6 +159,17 @@ func testTokenizer() {
 
 	mt := myTokenizer(cRef, three)
 	toks := mt.Tokens("test line")
+	for _, tok := range toks {
+		fmt.Println(tok)
+	}
+
+	cRef.userID = "aaaamyUserId"
+	cRef.From = 3
+	cRef.Through = 20000000
+	cRef.Checksum = 4442115
+
+	mt.reinit2(cRef)
+	toks = mt.Tokens("test line")
 	for _, tok := range toks {
 		fmt.Println(tok)
 	}
@@ -296,6 +338,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 	//pool := newPool(runtime.NumCPU())
 	pool := newPool(1) // going to use pods in the statefulset for the parallelism
 	cache := NewLRUCache(100000)
+	chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
 
 	for _, tenant := range tenants {
 		level.Info(util_log.Logger).Log("Analyzing tenant", tenant, "table", tableName)
@@ -378,7 +421,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									// iterate experiments
 									for experimentIdx, experiment := range experiments {
 										//level.Info(util_log.Logger).Log("experiment", experiment.name)
-										bucketPrefix := "experiment-100000-clearlru-reusetb2-"
+										bucketPrefix := "experiment-100000-clearlru-reusetb2-reusetokenizer-resetbuilder4-"
 										if !sbfFileExists("bloomtests",
 											fmt.Sprint(bucketPrefix, experimentIdx),
 											os.Getenv("BUCKET"),
@@ -397,10 +440,15 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												lines, inserts, collisions float64
 											)
 											for idx := range got {
-												tokenizer := experiment.tokenizer
-												if experiment.encodeChunkID {
-													tokenizer = ChunkIDTokenizer(got[idx].ChunkRef, tokenizer)
-												}
+												// TODO this won't work if we add more experiments or stop encoding chunk id
+												/*
+													tokenizer := experiment.tokenizer
+													if experiment.encodeChunkID {
+														tokenizer = ChunkIDTokenizer(got[idx].ChunkRef, tokenizer)
+													}
+												*/
+												chunkTokenizer.reinit(got[idx].ChunkRef)
+												tokenizer := chunkTokenizer // so I don't have to change the lines of code below
 												lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
 												//level.Info(util_log.Logger).Log("in range", idx)
 
@@ -877,4 +925,76 @@ func (c *LRUCache3) removeTail() {
 		c.tail = c.tail.prev
 		c.tail.next = nil
 	}
+}
+
+type LRUCache4 struct {
+	capacity int
+	cache    map[string]*list.Element
+	list     *list.List
+}
+
+type Entry4 struct {
+	key   string
+	value []byte
+}
+
+func NewLRUCache4(capacity int) *LRUCache4 {
+	return &LRUCache4{
+		capacity: capacity,
+		cache:    make(map[string]*list.Element),
+		list:     list.New(),
+	}
+}
+
+func (c *LRUCache4) Get(value []byte) (bool, string) {
+	key := string(value)
+	if elem, ok := c.cache[key]; ok {
+		// Move the accessed element to the front of the list
+		c.list.MoveToFront(elem)
+		return true, key
+	}
+	return false, ""
+}
+
+func (c *LRUCache4) GetString(key string) (bool, []byte) {
+	if elem, ok := c.cache[key]; ok {
+		// Move the accessed element to the front of the list
+		c.list.MoveToFront(elem)
+		return true, elem.Value.(*Entry4).value
+	}
+	return false, nil
+}
+
+func (c *LRUCache4) Put(value []byte) {
+	key := string(value)
+
+	if elem, ok := c.cache[key]; ok {
+		// If the key already exists, move it to the front
+		c.list.MoveToFront(elem)
+	} else {
+		// If the cache is full, remove the least recently used element
+		if len(c.cache) >= c.capacity {
+			// Get the least recently used element from the back of the list
+			tailElem := c.list.Back()
+			if tailElem != nil {
+				deletedEntry := c.list.Remove(tailElem).(*Entry4)
+				delete(c.cache, deletedEntry.key)
+			}
+		}
+
+		// Add the new key to the cache and the front of the list
+		newEntry := &Entry4{key, value}
+		newElem := c.list.PushFront(newEntry)
+		c.cache[key] = newElem
+	}
+}
+
+func (c *LRUCache4) Clear() {
+	// Iterate through the list and remove all elements
+	for elem := c.list.Front(); elem != nil; elem = elem.Next() {
+		delete(c.cache, elem.Value.(*Entry4).key)
+	}
+
+	// Clear the list
+	c.list.Init()
 }
