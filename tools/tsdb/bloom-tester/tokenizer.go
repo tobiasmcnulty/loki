@@ -47,22 +47,6 @@ type ngramTokenizer struct {
 	buffers        [][]rune // circular buffers used for ngram generation
 }
 
-/*
-func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
-	t := &ngramTokenizer{
-		min:  min,
-		max:  max,
-		skip: skip,
-	}
-	for i := t.min; i < t.max; i++ {
-		t.buffers = append(t.buffers, make([]rune, i))
-	}
-
-	return t
-
-}
-*/
-
 func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
 	capacity := max - min
 	t := &ngramTokenizer{
@@ -79,7 +63,7 @@ func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
 }
 
 func (t *ngramTokenizer) Tokens(line string) (res []Token) {
-	res = make([]Token, 0, len(line)-t.min+1)
+	res = make([]Token, 0, len(line))
 	var i int // rune index (not position that is measured in the range loop)
 	for _, r := range line {
 
@@ -133,7 +117,6 @@ func ChunkIDTokenizer(chk logproto.ChunkRef, t Tokenizer) *WrappedTokenizer {
 			builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
 			builder.WriteString(prefix)
 			builder.WriteString(tok.Key)
-			//tok.Key = fmt.Sprintf("%s:%s", prefix, tok.Key)
 			tok.Key = builder.String()
 			return tok
 		},

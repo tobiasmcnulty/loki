@@ -10,8 +10,10 @@ import (
 	"github.com/grafana/dskit/services"
 	"github.com/grafana/loki/pkg/storage/config"
 	"github.com/prometheus/client_golang/prometheus"
+	"hash/fnv"
 	"math"
 	"os"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -36,12 +38,56 @@ import (
 )
 
 func testlru() {
-	cache := NewLRUCache(102400)
-	b := cache.Get("foo")
-	fmt.Println(b)
-	cache.Put("foo")
-	b = cache.Get("foo")
-	fmt.Println(b)
+	/*
+		cache := NewLRUCache(102400)
+		b := cache.Get("foo")
+		fmt.Println(b)
+		cache.Put("foo")
+		b = cache.Get("foo")
+		fmt.Println(b)
+	*/
+	num := 1000000
+	/*
+		f, _ := os.Create("BenchmarkLRU1Put.prof")
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+		cache := NewLRUCache(1024)
+
+		for i := 0; i < num; i++ {
+			cache.Put(strconv.Itoa(i))
+		}
+	*/
+	/*
+		f, _ := os.Create("BenchmarkLRU2Put.prof")
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+		cache := NewLRUCache2(1024)
+		for i := 0; i < num; i++ {
+			cache.Put(strconv.Itoa(i))
+		}*/
+	/*
+		f, _ := os.Create("BenchmarkLRU1Get.prof")
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+		cache := NewLRUCache(1024)
+		for i := 0; i < 1024; i++ {
+			cache.Put(strconv.Itoa(i))
+		}
+		for i := 0; i < num; i++ {
+			cache.Get(strconv.Itoa(i))
+		}
+
+	*/
+	f, _ := os.Create("BenchmarkLRU2Get.prof")
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
+	cache := NewLRUCache2(1024)
+	for i := 0; i < 1024; i++ {
+		cache.Put(strconv.Itoa(i))
+	}
+	for i := 0; i < num; i++ {
+		cache.Get(strconv.Itoa(i))
+	}
 
 }
 
@@ -249,6 +295,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 	//reportEvery := 10 // report every n chunks
 	//pool := newPool(runtime.NumCPU())
 	pool := newPool(1) // going to use pods in the statefulset for the parallelism
+	cache := NewLRUCache(100000)
 
 	for _, tenant := range tenants {
 		level.Info(util_log.Logger).Log("Analyzing tenant", tenant, "table", tableName)
@@ -331,7 +378,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									// iterate experiments
 									for experimentIdx, experiment := range experiments {
 										//level.Info(util_log.Logger).Log("experiment", experiment.name)
-										bucketPrefix := "experiment-100000-tokenizer-slices3-"
+										bucketPrefix := "experiment-100000-clearlru-"
 										if !sbfFileExists("bloomtests",
 											fmt.Sprint(bucketPrefix, experimentIdx),
 											os.Getenv("BUCKET"),
@@ -343,7 +390,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 											objectClient) {
 
 											sbf := experiment.bloom()
-											cache := NewLRUCache(100000)
+											cache.Clear()
 
 											// Iterate chunks
 											var (
@@ -403,7 +450,6 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 											}
 
 											if len(got) > 0 {
-
 												metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
 												fillRatio := sbf.FillRatio()
 												metrics.hammingWeightRatio.WithLabelValues(experiment.name).Observe(fillRatio)
@@ -429,6 +475,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												if err != nil {
 													helpers.ExitErr("writing sbf to file", err)
 												}
+
 											} else {
 												//level.Info(util_log.Logger).Log("len got < 0")
 											}
@@ -638,5 +685,196 @@ func (c *LRUCache) Put(key string) {
 		newEntry := &Entry{key}
 		newElem := c.list.PushFront(newEntry)
 		c.cache[key] = newElem
+	}
+}
+
+func (c *LRUCache) Clear() {
+	// Iterate through the list and remove all elements
+	for elem := c.list.Front(); elem != nil; elem = elem.Next() {
+		delete(c.cache, elem.Value.(*Entry).key)
+	}
+
+	// Clear the list
+	c.list.Init()
+}
+
+type LRUCache2 struct {
+	capacity int
+	cache    map[string]*LRUNode2
+	head     *LRUNode2
+	tail     *LRUNode2
+}
+
+type LRUNode2 struct {
+	key string
+	//value interface{}
+	prev *LRUNode2
+	next *LRUNode2
+}
+
+func NewLRUCache2(capacity int) *LRUCache2 {
+	return &LRUCache2{
+		capacity: capacity,
+		cache:    make(map[string]*LRUNode2),
+	}
+}
+
+func (c *LRUCache2) Get(key string) bool {
+	if node, ok := c.cache[key]; ok {
+		// Move the accessed element to the front
+		c.moveToFront(node)
+		return true
+	}
+	return false
+}
+
+func (c *LRUCache2) Put(key string) {
+	if node, ok := c.cache[key]; ok {
+		// If the key already exists, update the value and move it to the front
+		c.moveToFront(node)
+	} else {
+		// If the cache is full, remove the least recently used element
+		if len(c.cache) >= c.capacity {
+			c.removeTail()
+		}
+
+		// Add the new key to the cache and the front
+		newNode := &LRUNode2{key: key}
+		c.cache[key] = newNode
+		c.addToFront(newNode)
+	}
+}
+
+func (c *LRUCache2) moveToFront(node *LRUNode2) {
+	if node == c.head {
+		return
+	}
+	if node == c.tail {
+		c.tail = node.prev
+		c.tail.next = nil
+	} else {
+		node.prev.next = node.next
+		node.next.prev = node.prev
+	}
+	c.addToFront(node)
+}
+
+func (c *LRUCache2) addToFront(node *LRUNode2) {
+	node.prev = nil
+	node.next = c.head
+	if c.head != nil {
+		c.head.prev = node
+	}
+	c.head = node
+	if c.tail == nil {
+		c.tail = node
+	}
+}
+
+func (c *LRUCache2) removeTail() {
+	if c.tail == nil {
+		return
+	}
+	delete(c.cache, c.tail.key)
+	if c.tail == c.head {
+		c.head = nil
+		c.tail = nil
+	} else {
+		c.tail = c.tail.prev
+		c.tail.next = nil
+	}
+}
+
+func hash(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
+}
+
+type LRUCache3 struct {
+	capacity int
+	cache    map[uint32]*LRUNode3
+	head     *LRUNode3
+	tail     *LRUNode3
+}
+
+type LRUNode3 struct {
+	key uint32
+	//value interface{}
+	prev *LRUNode3
+	next *LRUNode3
+}
+
+func NewLRUCache3(capacity int) *LRUCache3 {
+	return &LRUCache3{
+		capacity: capacity,
+		cache:    make(map[uint32]*LRUNode3),
+	}
+}
+
+func (c *LRUCache3) Get(key string) bool {
+	if node, ok := c.cache[hash(key)]; ok {
+		// Move the accessed element to the front
+		c.moveToFront(node)
+		return true
+	}
+	return false
+}
+
+func (c *LRUCache3) Put(key string) {
+	h := hash(key)
+	if node, ok := c.cache[h]; ok {
+		// If the key already exists, update the value and move it to the front
+		c.moveToFront(node)
+	} else {
+		// If the cache is full, remove the least recently used element
+		if len(c.cache) >= c.capacity {
+			c.removeTail()
+		}
+
+		// Add the new key to the cache and the front
+		newNode := &LRUNode3{key: h}
+		c.cache[h] = newNode
+		c.addToFront(newNode)
+	}
+}
+
+func (c *LRUCache3) moveToFront(node *LRUNode3) {
+	if node == c.head {
+		return
+	}
+	if node == c.tail {
+		c.tail = node.prev
+		c.tail.next = nil
+	} else {
+		node.prev.next = node.next
+		node.next.prev = node.prev
+	}
+	c.addToFront(node)
+}
+
+func (c *LRUCache3) addToFront(node *LRUNode3) {
+	node.prev = nil
+	node.next = c.head
+	if c.head != nil {
+		c.head.prev = node
+	}
+	c.head = node
+	if c.tail == nil {
+		c.tail = node
+	}
+}
+
+func (c *LRUCache3) removeTail() {
+	if c.tail == nil {
+		return
+	}
+	delete(c.cache, c.tail.key)
+	if c.tail == c.head {
+		c.head = nil
+		c.tail = nil
+	} else {
+		c.tail = c.tail.prev
+		c.tail.next = nil
 	}
 }

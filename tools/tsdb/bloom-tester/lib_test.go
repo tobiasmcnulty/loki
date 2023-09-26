@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -90,5 +91,58 @@ func TestNGramsSkip(t *testing.T) {
 		t.Run(tc.desc, func(t *testing.T) {
 			require.Equal(t, tc.exp, tc.tokenizer.Tokens(tc.input))
 		})
+	}
+}
+
+var num = 1000000
+
+func BenchmarkLRU1Put(b *testing.B) {
+	cache := NewLRUCache(num)
+	for i := 0; i < b.N; i++ {
+		cache.Put(strconv.Itoa(i))
+	}
+}
+
+func BenchmarkLRU1Get(b *testing.B) {
+	cache := NewLRUCache(num)
+	for i := 0; i < num; i++ {
+		cache.Put(strconv.Itoa(i))
+	}
+	for i := 0; i < b.N; i++ {
+		cache.Get(strconv.Itoa(i))
+	}
+}
+
+func BenchmarkLRU2Put(b *testing.B) {
+	cache := NewLRUCache2(num)
+	for i := 0; i < b.N; i++ {
+		cache.Put(strconv.Itoa(i))
+	}
+}
+
+func BenchmarkLRU2Get(b *testing.B) {
+	cache := NewLRUCache2(num)
+	for i := 0; i < num; i++ {
+		cache.Put(strconv.Itoa(i))
+	}
+	for i := 0; i < b.N; i++ {
+		cache.Get(strconv.Itoa(i))
+	}
+}
+
+func BenchmarkLRU3Put(b *testing.B) {
+	cache := NewLRUCache2(num)
+	for i := 0; i < b.N; i++ {
+		cache.Put(strconv.Itoa(i))
+	}
+}
+
+func BenchmarkLRU3Get(b *testing.B) {
+	cache := NewLRUCache2(num)
+	for i := 0; i < num; i++ {
+		cache.Put(strconv.Itoa(i))
+	}
+	for i := 0; i < b.N; i++ {
+		cache.Get(strconv.Itoa(i))
 	}
 }
