@@ -46,6 +46,7 @@ type ngramTokenizer struct {
 	min, max, skip int
 	buffers        [][]rune // circular buffers used for ngram generation
 	runeBuffer     []byte   // buffer used for token generation
+	tokenBuffer    []Token  // buffer used for holding tokens
 }
 
 func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
@@ -60,13 +61,15 @@ func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
 		t.buffers[i-t.min] = make([]rune, i)
 	}
 	t.runeBuffer = make([]byte, 0, max*4)
+	t.tokenBuffer = make([]Token, 0, 1024)
 
 	return t
 }
 
-func (t *ngramTokenizer) Tokens(line string) (res []Token) {
-	res = make([]Token, 0, len(line))
-	var i int // rune index (not position that is measured in the range loop)
+func (t *ngramTokenizer) Tokens(line string) []Token {
+	//res = make([]Token, 0, len(line))
+	t.tokenBuffer = t.tokenBuffer[:0] // Reset the result slice
+	var i int                         // rune index (not position that is measured in the range loop)
 	for _, r := range line {
 
 		// j is the index of the buffer to use
@@ -79,12 +82,12 @@ func (t *ngramTokenizer) Tokens(line string) (res []Token) {
 
 			if i >= n-1 && (i+1-n)%(t.skip+1) == 0 {
 				t.runeBuffer = reassemble(t.buffers[j], (i+1)%n, t.runeBuffer)
-				res = append(res, Token{Key: string(t.tokenBuffer), Value: ""})
+				t.tokenBuffer = append(t.tokenBuffer, Token{Key: string(t.runeBuffer), Value: ""})
 			}
 		}
 		i++
 	}
-	return
+	return t.tokenBuffer
 }
 
 func reassemble(buf []rune, pos int, result []byte) []byte {
