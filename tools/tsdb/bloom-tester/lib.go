@@ -112,36 +112,10 @@ type cRef struct {
 }
 
 func myTokenizer(chk cRef, t Tokenizer) *WrappedTokenizer {
-	/*
-		return &WrappedTokenizer{
-			t: t,
-			f: func(tok Token) Token {
-				tok.Key = fmt.Sprintf("%d:%d:%d:%s", chk.From, chk.Through, chk.Checksum, tok.Key)
-				return tok
-			},
-		}*/
 	p := make([]byte, 0, 256)
 	i64buf := make([]byte, binary.MaxVarintLen64)
 	i32buf := make([]byte, 4)
 
-	//buf := make([]byte, binary.MaxVarintLen64)
-
-	//buf := [binary.MaxVarintLen64]byte{}
-	//p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
-	/*
-		fmt.Println(chk.From)
-		fmt.Println(len(buf))
-		_ = binary.PutVarint(buf, chk.From)
-		p = append(p, buf...)
-		p = append(p, 58)
-		_ = binary.PutVarint(buf, chk.Through)
-		p = append(p, buf...)
-		p = append(p, 58)
-		_ = binary.PutVarint(buf, int64(chk.Checksum))
-		p = append(p, buf...)
-		p = append(p, 58)
-
-	*/
 	binary.PutVarint(i64buf, chk.From)
 	p = append(p, i64buf...)
 	p = append(p, 58)
@@ -153,64 +127,22 @@ func myTokenizer(chk cRef, t Tokenizer) *WrappedTokenizer {
 	p = append(p, 58)
 	//p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
 
-	//b := buf[:n]
 	b := strings.Builder{}
 	b.Grow(256)
 	return &WrappedTokenizer{
 		t: t,
 		f: func(tok TokenB) TokenB {
-			//var builder strings.Builder
-			//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
-			//b.Reset()
-			//b.WriteString(string(p))
-			//b.WriteString(tok.Key)
-			//tok.Key = b.String()
-			//oldTok := tok.Key
-			//tok.Key = tok.Key[:0]
-			//tok.Key = append(tok.Key, p...)
-			//tok.Key = append(tok.Key, oldTok...)
 			tok.Key = append(append(tok.Key, p...), tok.Key...)[len(tok.Key):]
 			return tok
 		},
 		tokenBuffer: make([]TokenB, 0, 1024),
-		//builder:     b,
-		prefix: p,
-		i64buf: i64buf,
-		i32buf: i32buf,
+		prefix:      p,
+		i64buf:      i64buf,
+		i32buf:      i32buf,
 	}
 }
 
 func (w *WrappedTokenizer) reinit2(chk cRef) {
-	// convert int64 to []byte
-	//buf := make([]byte, binary.MaxVarintLen64)
-	//n := binary.PutVarint(buf, num)
-	//b := buf[:n]
-
-	/*
-		w.prefix = w.prefix[:0]
-		b := [4]byte{
-			byte(0xff & chk.From),
-			byte(0xff & chk.From),
-			byte(0xff & chk.From),
-			byte(0xff & chk.From)}
-		w.prefix = append(w.prefix, b[:]...)
-		w.prefix = append(w.prefix, 58)
-		b = [4]byte{
-			byte(0xff & chk.Through),
-			byte(0xff & chk.Through),
-			byte(0xff & chk.Through),
-			byte(0xff & chk.Through)}
-		w.prefix = append(w.prefix, b[:]...)
-		w.prefix = append(w.prefix, 58)
-		b = [4]byte{
-			byte(0xff & chk.Checksum),
-			byte(0xff & chk.Checksum),
-			byte(0xff & chk.Checksum),
-			byte(0xff & chk.Checksum)}
-		w.prefix = append(w.prefix, b[:]...)
-		w.prefix = append(w.prefix, 58)
-
-	*/
 	w.prefix = w.prefix[:0]
 	//w.prefix = fmt.Appendf(w.prefix, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
 	binary.PutVarint(w.i64buf, chk.From)
@@ -223,40 +155,20 @@ func (w *WrappedTokenizer) reinit2(chk cRef) {
 	w.prefix = append(w.prefix, w.i32buf...)
 	w.prefix = append(w.prefix, 58)
 
-	//w.prefix = []byte(fmt.Sprintf("%d:%d:%d:", chk.From, chk.Through, chk.Checksum))
-	//p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
-
 	fmt.Println("reinit2")
 	w.f = func(tok TokenB) TokenB {
-		//var builder strings.Builder
-		//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
-		//w.builder.Reset()
-		//w.builder.WriteString(string(w.prefix))
-		//w.builder.WriteString(tok.Key)
-		//oldTok := tok.Key
 		tok.Key = append(append(tok.Key, w.prefix...), tok.Key...)[len(tok.Key):]
-		//tok.Key = tok.Key[:0]
-		//tok.Key = append(tok.Key, w.prefix...)
-		//tok.Key = append(tok.Key, oldTok...)
-		//tok.Key = w.builder.String()
 		return tok
 	}
-
 }
-func testTokenizer() {
-	//f, _ := os.Create("BenchmarkTokenizer.prof")
-	//pprof.StartCPUProfile(f)
-	//defer pprof.StopCPUProfile()
 
+func testTokenizer() {
 	var cRef = cRef{
 		userID:   "myUserId",
 		From:     65,
 		Through:  10000000,
 		Checksum: 123455,
 	}
-
-	//var logproto.ChunkRef chunkref = {}
-	//tokenizer := ChunkIDTokenizer(chunkref, three)
 
 	mt := myTokenizer(cRef, three)
 	toks := mt.Tokens("test line")
@@ -275,6 +187,30 @@ func testTokenizer() {
 	for _, tok := range toks {
 		fmt.Println(tok)
 	}
+}
+
+func testTrie() {
+	trie := NewTrie()
+
+	// Insert some key-value pairs into the trie.
+	trie.Insert([]byte("apple"), "A sweet fruit")
+	trie.Insert([]byte("banana"), "An elongated, edible fruit")
+	trie.Insert([]byte("app"), "A software application")
+
+	// Search for values based on keys.
+	val1, found1 := trie.Search([]byte("apple"))
+	val2, found2 := trie.Search([]byte("banana"))
+	val3, found3 := trie.Search([]byte("app"))
+	val4, found4 := trie.Search([]byte("orange"))
+
+	fmt.Println("apple:", val1, found1)  // Output: apple: A sweet fruit true
+	fmt.Println("banana:", val2, found2) // Output: banana: An elongated, edible fruit true
+	fmt.Println("app:", val3, found3)    // Output: app: A software application true
+	fmt.Println("orange:", val4, found4) // Output: orange: false
+
+	trie.Clear()
+	val1, found1 = trie.Search([]byte("apple"))
+	fmt.Println("apple:", val1, found1) // Output: apple: A sweet fruit true
 }
 
 func execute() {
@@ -474,12 +410,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 								}
 
 								splitChks := splitSlice(chks, numTesters)
-								//level.Info(util_log.Logger).Log("Number of splits", len(splitChks), "Items in split", len(splitChks[0]))
 								var transformed []chunk.Chunk
-								//transformed := splitChks[testerNumber]
-
-								//transformed := make([]chunk.Chunk, 0, len(chks))
-								//for _, chk := range chks {
 								var firstTimeStamp model.Time
 								var lastTimeStamp model.Time
 								var firstFP uint64
@@ -509,9 +440,6 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									transformed,
 								)
 								if err == nil {
-
-									//helpers.ExitErr("getting chunks", err)
-
 									// record raw chunk sizes
 									var chunkTotalUncompressedSize int
 									for _, c := range got {
@@ -523,7 +451,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									// iterate experiments
 									for experimentIdx, experiment := range experiments {
 										//level.Info(util_log.Logger).Log("experiment", experiment.name)
-										bucketPrefix := "experiment-100000-doingbytes-append2-"
+										bucketPrefix := "experiment-pod-counts-"
 										if !sbfFileExists("bloomtests",
 											fmt.Sprint(bucketPrefix, experimentIdx),
 											os.Getenv("BUCKET"),
@@ -552,7 +480,6 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												chunkTokenizer.reinit(got[idx].ChunkRef)
 												tokenizer := chunkTokenizer // so I don't have to change the lines of code below
 												lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
-												//level.Info(util_log.Logger).Log("in range", idx)
 
 												// Only report on the last experiment since they run serially
 												/*if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
@@ -578,24 +505,15 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 													toks := tokenizer.Tokens(itr.Entry().Line)
 													lines++
 													for _, tok := range toks {
-														//level.Info(util_log.Logger).Log("tok key", tok.Key)
-														//for _, str := range []string{tok.Key, tok.Value} {
 														if tok.Key != nil {
-															//if str != "" {
 															if !cache.Get(tok.Key) {
-																//level.Info(util_log.Logger).Log("cache miss", str)
-
 																cache.Put(tok.Key)
 																if dup := sbf.TestAndAdd(tok.Key); dup {
 																	collisions++
 																}
 																inserts++
-															} else {
-																//level.Info(util_log.Logger).Log("skipping as this is already in cache", str)
-
 															}
 														}
-
 													}
 												}
 												helpers.ExitErr("iterating chunks", itr.Error())
@@ -612,7 +530,6 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
 												metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
 
-												//location, prefix, period, tenant, startfp, endfp, startts, endts
 												writeSBF(sbf,
 													os.Getenv("DIR"),
 													fmt.Sprint(bucketPrefix, experimentIdx),
@@ -627,14 +544,8 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												if err != nil {
 													helpers.ExitErr("writing sbf to file", err)
 												}
-
-											} else {
-												//level.Info(util_log.Logger).Log("len got < 0")
 											}
-
-										} /*else {
-											level.Info(util_log.Logger).Log("skipping as this is already in object storage")
-										}*/
+										}
 									}
 								} else {
 									level.Info(util_log.Logger).Log("error getting chunks", err)
@@ -788,7 +699,6 @@ type LRUCache struct {
 	capacity int
 	cache    map[string]*list.Element
 	list     *list.List
-	//mutex    sync.Mutex
 }
 
 type Entry struct {
@@ -804,9 +714,6 @@ func NewLRUCache(capacity int) *LRUCache {
 }
 
 func (c *LRUCache) Get(key string) bool {
-	//c.mutex.Lock()
-	//defer c.mutex.Unlock()
-
 	if elem, ok := c.cache[key]; ok {
 		// Move the accessed element to the front of the list
 		c.list.MoveToFront(elem)
@@ -816,9 +723,6 @@ func (c *LRUCache) Get(key string) bool {
 }
 
 func (c *LRUCache) Put(key string) {
-	//c.mutex.Lock()
-	//defer c.mutex.Unlock()
-
 	if elem, ok := c.cache[key]; ok {
 		// If the key already exists, move it to the front
 		c.list.MoveToFront(elem)
@@ -951,8 +855,7 @@ type LRUCache3 struct {
 }
 
 type LRUNode3 struct {
-	key uint32
-	//value interface{}
+	key  uint32
 	prev *LRUNode3
 	next *LRUNode3
 }
@@ -1101,4 +1004,68 @@ func (c *LRUCache4) Clear() {
 
 	// Clear the list
 	c.list.Init()
+}
+
+// TrieNode represents a node in the trie.
+type TrieNode struct {
+	children map[byte]*TrieNode
+	value    string
+}
+
+// Trie represents the trie data structure.
+type Trie struct {
+	root *TrieNode
+}
+
+// NewTrieNode creates a new trie node.
+func NewTrieNode() *TrieNode {
+	return &TrieNode{
+		children: make(map[byte]*TrieNode),
+		value:    "",
+	}
+}
+
+// NewTrie creates a new trie.
+func NewTrie() *Trie {
+	return &Trie{
+		root: NewTrieNode(),
+	}
+}
+
+// Insert inserts a string into the trie associated with a given key (byte slice).
+func (t *Trie) Insert(key []byte, value string) {
+	node := t.root
+	for _, b := range key {
+		if node.children[b] == nil {
+			node.children[b] = NewTrieNode()
+		}
+		node = node.children[b]
+	}
+	node.value = value
+}
+
+// Search searches for a string associated with a given key (byte slice) in the trie.
+func (t *Trie) Search(key []byte) (string, bool) {
+	node := t.root
+	for _, b := range key {
+		if node.children[b] == nil {
+			return "", false
+		}
+		node = node.children[b]
+	}
+	return node.value, node.value != ""
+}
+
+func (t *Trie) Clear() {
+	t.clearNode(t.root)
+}
+
+func (t *Trie) clearNode(trieNode *TrieNode) {
+	if trieNode != nil {
+		for k, child := range trieNode.children {
+			t.clearNode(child)
+			delete(trieNode.children, k)
+		}
+		trieNode.value = ""
+	}
 }

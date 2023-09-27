@@ -5,4 +5,5 @@ func main() {
 	execute()
 	//testlru()
 	//testTokenizer()
+	//testTrie()
 }
