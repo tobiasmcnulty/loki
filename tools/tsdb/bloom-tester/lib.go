@@ -5,13 +5,11 @@ import (
 	"bytes"
 	"container/list"
 	"context"
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"github.com/grafana/dskit/services"
 	"github.com/grafana/loki/pkg/storage/config"
 	"github.com/prometheus/client_golang/prometheus"
-	"hash/fnv"
 	"math"
 	"os"
 	"strconv"
@@ -36,182 +34,6 @@ import (
 	util_log "github.com/grafana/loki/pkg/util/log"
 	"github.com/grafana/loki/tools/tsdb/helpers"
 )
-
-func testlru() {
-	/*
-		cache := NewLRUCache(102400)
-		b := cache.Get("foo")
-		fmt.Println(b)
-		cache.Put("foo")
-		b = cache.Get("foo")
-		fmt.Println(b)
-	*/
-	num := 10
-	/*
-		f, _ := os.Create("BenchmarkLRU1Put.prof")
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-		cache := NewLRUCache(1024)
-
-		for i := 0; i < num; i++ {
-			cache.Put(strconv.Itoa(i))
-		}
-	*/
-	/*
-		f, _ := os.Create("BenchmarkLRU2Put.prof")
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-		cache := NewLRUCache2(1024)
-		for i := 0; i < num; i++ {
-			cache.Put(strconv.Itoa(i))
-		}*/
-	/*
-		f, _ := os.Create("BenchmarkLRU1Get.prof")
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-		cache := NewLRUCache(1024)
-		for i := 0; i < 1024; i++ {
-			cache.Put(strconv.Itoa(i))
-		}
-		for i := 0; i < num; i++ {
-			cache.Get(strconv.Itoa(i))
-		}
-
-	*/
-	/*
-		f, _ := os.Create("BenchmarkLRU2Get.prof")
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-		cache := NewLRUCache2(1024)
-		for i := 0; i < 1024; i++ {
-			cache.Put(strconv.Itoa(i))
-		}
-		for i := 0; i < num; i++ {
-			cache.Get(strconv.Itoa(i))
-		}
-	*/
-	cache := NewLRUCache4(2)
-	for i := 0; i < 2; i++ {
-		cache.Put([]byte(strconv.Itoa(i)))
-	}
-	for i := 0; i < num; i++ {
-		fmt.Println(cache.GetString(strconv.Itoa(i)))
-	}
-	for i := 0; i < num; i++ {
-		fmt.Println(cache.Get([]byte(strconv.Itoa(i))))
-	}
-
-}
-
-type cRef struct {
-	fingerprint uint64
-	userID      string
-	From        int64 //github.com/prometheus/common/model.Tim
-	Through     int64
-	Checksum    uint32
-}
-
-func myTokenizer(chk cRef, t Tokenizer) *WrappedTokenizer {
-	p := make([]byte, 0, 256)
-	i64buf := make([]byte, binary.MaxVarintLen64)
-	i32buf := make([]byte, 4)
-
-	binary.PutVarint(i64buf, chk.From)
-	p = append(p, i64buf...)
-	p = append(p, 58)
-	binary.PutVarint(i64buf, chk.Through)
-	p = append(p, i64buf...)
-	p = append(p, 58)
-	binary.LittleEndian.PutUint32(i32buf, chk.Checksum)
-	p = append(p, i32buf...)
-	p = append(p, 58)
-	//p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
-
-	b := strings.Builder{}
-	b.Grow(256)
-	return &WrappedTokenizer{
-		t: t,
-		f: func(tok TokenB) TokenB {
-			tok.Key = append(append(tok.Key, p...), tok.Key...)[len(tok.Key):]
-			return tok
-		},
-		tokenBuffer: make([]TokenB, 0, 1024),
-		prefix:      p,
-		i64buf:      i64buf,
-		i32buf:      i32buf,
-	}
-}
-
-func (w *WrappedTokenizer) reinit2(chk cRef) {
-	w.prefix = w.prefix[:0]
-	//w.prefix = fmt.Appendf(w.prefix, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
-	binary.PutVarint(w.i64buf, chk.From)
-	w.prefix = append(w.prefix, w.i64buf...)
-	w.prefix = append(w.prefix, 58)
-	binary.PutVarint(w.i64buf, chk.Through)
-	w.prefix = append(w.prefix, w.i64buf...)
-	w.prefix = append(w.prefix, 58)
-	binary.LittleEndian.PutUint32(w.i32buf, chk.Checksum)
-	w.prefix = append(w.prefix, w.i32buf...)
-	w.prefix = append(w.prefix, 58)
-
-	fmt.Println("reinit2")
-	w.f = func(tok TokenB) TokenB {
-		tok.Key = append(append(tok.Key, w.prefix...), tok.Key...)[len(tok.Key):]
-		return tok
-	}
-}
-
-func testTokenizer() {
-	var cRef = cRef{
-		userID:   "myUserId",
-		From:     65,
-		Through:  10000000,
-		Checksum: 123455,
-	}
-
-	mt := myTokenizer(cRef, three)
-	toks := mt.Tokens("test line")
-
-	for _, tok := range toks {
-		fmt.Println(tok)
-	}
-
-	cRef.userID = "aaaamyUserId"
-	cRef.From = 3
-	cRef.Through = 20000000
-	cRef.Checksum = 4442115
-
-	mt.reinit2(cRef)
-	toks = mt.Tokens("second line")
-	for _, tok := range toks {
-		fmt.Println(tok)
-	}
-}
-
-func testTrie() {
-	trie := NewTrie()
-
-	// Insert some key-value pairs into the trie.
-	trie.Insert([]byte("apple"), "A sweet fruit")
-	trie.Insert([]byte("banana"), "An elongated, edible fruit")
-	trie.Insert([]byte("app"), "A software application")
-
-	// Search for values based on keys.
-	val1, found1 := trie.Search([]byte("apple"))
-	val2, found2 := trie.Search([]byte("banana"))
-	val3, found3 := trie.Search([]byte("app"))
-	val4, found4 := trie.Search([]byte("orange"))
-
-	fmt.Println("apple:", val1, found1)  // Output: apple: A sweet fruit true
-	fmt.Println("banana:", val2, found2) // Output: banana: An elongated, edible fruit true
-	fmt.Println("app:", val3, found3)    // Output: app: A software application true
-	fmt.Println("orange:", val4, found4) // Output: orange: false
-
-	trie.Clear()
-	val1, found1 = trie.Search([]byte("apple"))
-	fmt.Println("apple:", val1, found1) // Output: apple: A sweet fruit true
-}
 
 func execute() {
 	conf, svc, bucket, err := helpers.Setup()
@@ -374,11 +196,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 	var n int // count iterated series
 	//reportEvery := 10 // report every n chunks
 	//pool := newPool(runtime.NumCPU())
-	pool := newPool(1) // going to use pods in the statefulset for the parallelism
-	//cache := NewLRUCache4(100000)
-	//cache := fastcache.New(256)
-	cache := NewHashSet(100000)
-	chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
+	pool := newPool(8)
 
 	for _, tenant := range tenants {
 		level.Info(util_log.Logger).Log("Analyzing tenant", tenant, "table", tableName)
@@ -410,6 +228,9 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 								if !sampler.Sample() {
 									return
 								}
+
+								cache := NewHashSet(100000)
+								chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
 
 								splitChks := splitSlice(chks, numTesters)
 								var transformed []chunk.Chunk
@@ -532,8 +353,6 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 													collisions++
 												}
 												inserts++
-												//fmt.Println(k,v)
-
 											}
 
 											if len(got) > 0 {
@@ -858,99 +677,6 @@ func (c *LRUCache2) removeTail() {
 	}
 }
 
-func hash(s string) uint32 {
-	h := fnv.New32a()
-	h.Write([]byte(s))
-	return h.Sum32()
-}
-
-type LRUCache3 struct {
-	capacity int
-	cache    map[uint32]*LRUNode3
-	head     *LRUNode3
-	tail     *LRUNode3
-}
-
-type LRUNode3 struct {
-	key  uint32
-	prev *LRUNode3
-	next *LRUNode3
-}
-
-func NewLRUCache3(capacity int) *LRUCache3 {
-	return &LRUCache3{
-		capacity: capacity,
-		cache:    make(map[uint32]*LRUNode3),
-	}
-}
-
-func (c *LRUCache3) Get(key string) bool {
-	if node, ok := c.cache[hash(key)]; ok {
-		// Move the accessed element to the front
-		c.moveToFront(node)
-		return true
-	}
-	return false
-}
-
-func (c *LRUCache3) Put(key string) {
-	h := hash(key)
-	if node, ok := c.cache[h]; ok {
-		// If the key already exists, update the value and move it to the front
-		c.moveToFront(node)
-	} else {
-		// If the cache is full, remove the least recently used element
-		if len(c.cache) >= c.capacity {
-			c.removeTail()
-		}
-
-		// Add the new key to the cache and the front
-		newNode := &LRUNode3{key: h}
-		c.cache[h] = newNode
-		c.addToFront(newNode)
-	}
-}
-
-func (c *LRUCache3) moveToFront(node *LRUNode3) {
-	if node == c.head {
-		return
-	}
-	if node == c.tail {
-		c.tail = node.prev
-		c.tail.next = nil
-	} else {
-		node.prev.next = node.next
-		node.next.prev = node.prev
-	}
-	c.addToFront(node)
-}
-
-func (c *LRUCache3) addToFront(node *LRUNode3) {
-	node.prev = nil
-	node.next = c.head
-	if c.head != nil {
-		c.head.prev = node
-	}
-	c.head = node
-	if c.tail == nil {
-		c.tail = node
-	}
-}
-
-func (c *LRUCache3) removeTail() {
-	if c.tail == nil {
-		return
-	}
-	delete(c.cache, c.tail.key)
-	if c.tail == c.head {
-		c.head = nil
-		c.tail = nil
-	} else {
-		c.tail = c.tail.prev
-		c.tail.next = nil
-	}
-}
-
 type LRUCache4 struct {
 	capacity int
 	cache    map[string]*list.Element
@@ -1021,70 +747,6 @@ func (c *LRUCache4) Clear() {
 
 	// Clear the list
 	c.list.Init()
-}
-
-// TrieNode represents a node in the trie.
-type TrieNode struct {
-	children map[byte]*TrieNode
-	value    string
-}
-
-// Trie represents the trie data structure.
-type Trie struct {
-	root *TrieNode
-}
-
-// NewTrieNode creates a new trie node.
-func NewTrieNode() *TrieNode {
-	return &TrieNode{
-		children: make(map[byte]*TrieNode),
-		value:    "",
-	}
-}
-
-// NewTrie creates a new trie.
-func NewTrie() *Trie {
-	return &Trie{
-		root: NewTrieNode(),
-	}
-}
-
-// Insert inserts a string into the trie associated with a given key (byte slice).
-func (t *Trie) Insert(key []byte, value string) {
-	node := t.root
-	for _, b := range key {
-		if node.children[b] == nil {
-			node.children[b] = NewTrieNode()
-		}
-		node = node.children[b]
-	}
-	node.value = value
-}
-
-// Search searches for a string associated with a given key (byte slice) in the trie.
-func (t *Trie) Search(key []byte) (string, bool) {
-	node := t.root
-	for _, b := range key {
-		if node.children[b] == nil {
-			return "", false
-		}
-		node = node.children[b]
-	}
-	return node.value, node.value != ""
-}
-
-func (t *Trie) Clear() {
-	t.clearNode(t.root)
-}
-
-func (t *Trie) clearNode(trieNode *TrieNode) {
-	if trieNode != nil {
-		for k, child := range trieNode.children {
-			t.clearNode(child)
-			delete(trieNode.children, k)
-		}
-		trieNode.value = ""
-	}
 }
 
 type HashSet struct {
