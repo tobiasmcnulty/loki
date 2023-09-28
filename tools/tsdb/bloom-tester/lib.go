@@ -375,7 +375,9 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 	//reportEvery := 10 // report every n chunks
 	//pool := newPool(runtime.NumCPU())
 	pool := newPool(1) // going to use pods in the statefulset for the parallelism
-	cache := NewLRUCache4(100000)
+	//cache := NewLRUCache4(100000)
+	//cache := fastcache.New(256)
+	cache := NewHashSet(100000)
 	chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
 
 	for _, tenant := range tenants {
@@ -506,17 +508,32 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 													lines++
 													for _, tok := range toks {
 														if tok.Key != nil {
-															if !cache.Get(tok.Key) {
-																cache.Put(tok.Key)
-																if dup := sbf.TestAndAdd(tok.Key); dup {
-																	collisions++
+															cache.PutBoth(tok.Value, tok.Key)
+															//cache.PutBytes(tok.Key)
+
+															/*
+																if !cache.Has(tok.Key) { //if !cache.Get(tok.Key) {
+																	cache.Set(tok.Key, nil) //cache.Put(tok.Key)
+																	if dup := sbf.TestAndAdd(tok.Key); dup {
+																		collisions++
+																	}
+																	inserts++
 																}
-																inserts++
-															}
+
+															*/
 														}
 													}
 												}
 												helpers.ExitErr("iterating chunks", itr.Error())
+											}
+											hashSet := cache.SurfaceMap()
+											for _, v := range hashSet {
+												if !sbf.TestAndAdd(v) {
+													collisions++
+												}
+												inserts++
+												//fmt.Println(k,v)
+
 											}
 
 											if len(got) > 0 {
@@ -1067,5 +1084,47 @@ func (t *Trie) clearNode(trieNode *TrieNode) {
 			delete(trieNode.children, k)
 		}
 		trieNode.value = ""
+	}
+}
+
+type HashSet struct {
+	capacity int
+	cache    map[string][]byte
+}
+
+func NewHashSet(capacity int) *HashSet {
+	return &HashSet{
+		capacity: capacity,
+		cache:    make(map[string][]byte),
+	}
+}
+
+func (c *HashSet) Get(key string) (bool, []byte) {
+	if value, ok := c.cache[key]; ok {
+		return true, value
+	}
+	return false, nil
+}
+
+func (c *HashSet) Put(key string) {
+	c.cache[key] = []byte(key)
+}
+
+func (c *HashSet) PutBytes(value []byte) {
+	key := string(value)
+	c.cache[key] = []byte(key)
+}
+
+func (c *HashSet) PutBoth(key string, value []byte) {
+	c.cache[key] = value
+}
+
+func (c *HashSet) SurfaceMap() map[string][]byte {
+	return c.cache
+}
+
+func (c *HashSet) Clear() {
+	for k := range c.cache {
+		delete(c.cache, k)
 	}
 }

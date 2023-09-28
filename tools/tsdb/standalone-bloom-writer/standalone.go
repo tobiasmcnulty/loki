@@ -104,6 +104,57 @@ func testSBFRandomStringsWithLRU(doProfile bool) {
 	}
 }
 
+/*
+func testSBFRandomStringsWithFastCache(doProfile bool) {
+	if doProfile {
+		f, _ := os.Create("rand-strings-fc-cpu.prof")
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
+	file, _ := os.Open("big.txt")
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+
+	cache := fastcache.New(256)
+	sbf := experiment.bloom()
+	for scanner.Scan() {
+		line := scanner.Text()
+		tokens := experiment.tokenizer.Tokens(line)
+		for _, token := range tokens {
+			if !cache.Has(token.Key) {
+				cache.Set(token.Key, nil)
+				sbf.TestAndAdd(token.Key)
+			}
+		}
+	}
+}
+*/
+
+func testSBFRandomStringsWithHashSet(doProfile bool) {
+	if doProfile {
+		f, _ := os.Create("rand-strings-hashset-cpu.prof")
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
+	file, _ := os.Open("big.txt")
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+
+	cache := NewHashSet(100000)
+	sbf := experiment.bloom()
+	for scanner.Scan() {
+		line := scanner.Text()
+		tokens := experiment.tokenizer.Tokens(line)
+		for _, token := range tokens {
+			cache.PutBoth(token.Value, token.Key)
+		}
+	}
+	hashSet := cache.SurfaceMap()
+	for _, v := range hashSet {
+		sbf.TestAndAdd(v)
+	}
+}
+
 func testSBFConstantStrings(doProfile bool) {
 	if doProfile {
 		f, _ := os.Create("const-strings-cpu.prof")

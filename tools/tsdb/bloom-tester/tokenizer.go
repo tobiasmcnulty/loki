@@ -14,7 +14,8 @@ type Token struct {
 }
 
 type TokenB struct {
-	Key, Value []byte
+	Key   []byte
+	Value string
 }
 
 type Tokenizer interface {
@@ -71,7 +72,6 @@ func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
 }
 
 func (t *ngramTokenizer) Tokens(line string) []TokenB {
-	//res = make([]Token, 0, len(line))
 	t.tokenBuffer = t.tokenBuffer[:0] // Reset the result slice
 	var i int                         // rune index (not position that is measured in the range loop)
 	for _, r := range line {
@@ -87,8 +87,9 @@ func (t *ngramTokenizer) Tokens(line string) []TokenB {
 			if i >= n-1 && (i+1-n)%(t.skip+1) == 0 {
 				t.runeBuffer = reassemble(t.buffers[j], (i+1)%n, t.runeBuffer)
 				b := TokenB{}
-				b.Key = make([]byte, 0, len(t.runeBuffer)+128) // TODO: Yeah, that's too big but I didn't fee like doing the math at the end of the day
+				b.Key = make([]byte, 0, 132) // TODO: Yeah, that's too big but I didn't fee like doing the math at the end of the day
 				b.Key = append(b.Key, t.runeBuffer...)
+				b.Value = string(b.Key)
 				t.tokenBuffer = append(t.tokenBuffer, b)
 			}
 		}
@@ -110,16 +111,14 @@ type WrappedTokenizer struct {
 	t           Tokenizer
 	f           func(TokenB) TokenB
 	tokenBuffer []TokenB
-	//builder     strings.Builder
-	prefix []byte
-	i64buf []byte
-	i32buf []byte
+	prefix      []byte
+	i64buf      []byte
+	i32buf      []byte
 }
 
 func (w *WrappedTokenizer) Tokens(line string) []TokenB {
 	w.tokenBuffer = w.tokenBuffer[:0] // Reset the result slice
 	toks := w.t.Tokens(line)
-	//res := make([]Token, 0, len(toks)*2)
 	for _, tok := range toks {
 		w.tokenBuffer = append(w.tokenBuffer, w.f(tok))
 	}
@@ -131,8 +130,6 @@ func ChunkIDTokenizer(chk logproto.ChunkRef, t Tokenizer) *WrappedTokenizer {
 	p := make([]byte, 0, 256)
 	i64buf := make([]byte, binary.MaxVarintLen64)
 	i32buf := make([]byte, 4)
-	//b := strings.Builder{}
-	//p = fmt.Appendf(p, "%d:%d:%d:", chk.From, chk.Through, chk.Checksum)
 
 	binary.PutVarint(i64buf, int64(chk.From))
 	p = append(p, i64buf...)
@@ -144,43 +141,28 @@ func ChunkIDTokenizer(chk logproto.ChunkRef, t Tokenizer) *WrappedTokenizer {
 	p = append(p, i32buf...)
 	p = append(p, 58)
 
-	//b.Grow(256)
 	return &WrappedTokenizer{
 		t: t,
 		f: func(tok TokenB) TokenB {
-			//var builder strings.Builder
-			//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
-			//b.Reset()
 			tok.Key = append(append(tok.Key, p...), tok.Key...)[len(tok.Key):]
-			//oldTok := tok.Key
-			//tok.Key = tok.Key[:0]
-			//tok.Key = append(tok.Key, p...)
-			//tok.Key = append(tok.Key, oldTok...)
-
-			//b.WriteString(string(p))
-			//b.WriteString(tok.Key)
-			//tok.Key = b.String()
+			tok.Value = string(tok.Key)
 			return tok
 		},
 		tokenBuffer: make([]TokenB, 0, 1024),
-		//builder:     b,
-		prefix: p,
-		i64buf: i64buf,
-		i32buf: i32buf,
+		prefix:      p,
+		i64buf:      i64buf,
+		i32buf:      i32buf,
 	}
 }
 
 func ChunkIDTokenizerHalfInit(t Tokenizer) *WrappedTokenizer {
-	//b := strings.Builder{}
-	//b.Grow(256)
 	p := make([]byte, 0, 256)
 	return &WrappedTokenizer{
 		t:           t,
 		tokenBuffer: make([]TokenB, 0, 1024),
-		//builder:     b,
-		prefix: p,
-		i64buf: make([]byte, binary.MaxVarintLen64),
-		i32buf: make([]byte, 4),
+		prefix:      p,
+		i64buf:      make([]byte, binary.MaxVarintLen64),
+		i32buf:      make([]byte, 4),
 	}
 }
 
@@ -200,19 +182,8 @@ func (w *WrappedTokenizer) reinit(chk logproto.ChunkRef) {
 	w.prefix = append(w.prefix, 58)
 
 	w.f = func(tok TokenB) TokenB {
-		//var builder strings.Builder
-		//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
-		//w.builder.Reset()
-		//oldTok := tok.Key
-
-		//tok.Key = tok.Key[:0]
 		tok.Key = append(append(tok.Key, w.prefix...), tok.Key...)[len(tok.Key):]
-		//tok.Key = append(tok.Key, w.prefix...)
-		//tok.Key = append(tok.Key, oldTok...)
-
-		//w.builder.WriteString(string(w.prefix))
-		//w.builder.WriteString(tok.Key)
-		//tok.Key = w.builder.String()
+		tok.Value = string(tok.Key)
 		return tok
 	}
 

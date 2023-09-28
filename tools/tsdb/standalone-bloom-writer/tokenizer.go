@@ -13,8 +13,14 @@ type Token struct {
 	Key, Value string
 }
 
+/*
 type TokenB struct {
 	Key, Value []byte
+}*/
+
+type TokenB struct {
+	Key   []byte
+	Value string
 }
 
 type Tokenizer interface {
@@ -89,6 +95,7 @@ func (t *ngramTokenizer) Tokens(line string) []TokenB {
 				b := TokenB{}
 				b.Key = make([]byte, 0, len(t.runeBuffer)+128) // TODO: Yeah, that's too big but I didn't fee like doing the math at the end of the day
 				b.Key = append(b.Key, t.runeBuffer...)
+				b.Value = string(b.Key)
 				t.tokenBuffer = append(t.tokenBuffer, b)
 			}
 		}
@@ -152,6 +159,7 @@ func ChunkIDTokenizer(chk logproto.ChunkRef, t Tokenizer) *WrappedTokenizer {
 			//builder.Grow(256) // make this large once, so we don't need to reallocate for the two writes
 			//b.Reset()
 			tok.Key = append(append(tok.Key, p...), tok.Key...)[len(tok.Key):]
+			tok.Value = string(tok.Key)
 			//oldTok := tok.Key
 			//tok.Key = tok.Key[:0]
 			//tok.Key = append(tok.Key, p...)
@@ -207,6 +215,7 @@ func (w *WrappedTokenizer) reinit(chk logproto.ChunkRef) {
 
 		//tok.Key = tok.Key[:0]
 		tok.Key = append(append(tok.Key, w.prefix...), tok.Key...)[len(tok.Key):]
+		tok.Value = string(tok.Key)
 		//tok.Key = append(tok.Key, w.prefix...)
 		//tok.Key = append(tok.Key, oldTok...)
 

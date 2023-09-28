@@ -6,6 +6,8 @@ package main
 func main() {
 	testSBFRandomStrings(true)
 	testSBFRandomStringsWithLRU(true)
-	testSBFConstantStrings(true)
-	testSBFConstantStringsWithLRU(true)
+	testSBFRandomStringsWithHashSet(true)
+	//testSBFConstantStrings(true)
+	//testSBFConstantStringsWithLRU(true)
+	//testSBFRandomStringsWithFastCache(true)
 }

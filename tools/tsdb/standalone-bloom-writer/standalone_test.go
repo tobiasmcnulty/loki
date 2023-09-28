@@ -16,6 +16,21 @@ func BenchmarkSBFRandomStringsWithLRU(b *testing.B) {
 	}
 }
 
+func BenchmarkSBFRandomStringsWithHashSet(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		testSBFRandomStringsWithHashSet(false)
+	}
+}
+
+/*
+func BenchmarkSBFRandomStringsWithFastCache(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		testSBFRandomStringsWithFastCache(false)
+	}
+}
+
+*/
+
 func BenchmarkSBFConstantStrings(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		testSBFConstantStrings(false)
