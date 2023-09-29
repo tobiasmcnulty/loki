@@ -4,9 +4,10 @@ package main
 // ./standalone-tester
 // go tool pprof standalone-tester foo.prof
 func main() {
-	testSBFRandomStrings(true)
-	testSBFRandomStringsWithLRU(true)
-	testSBFRandomStringsWithHashSet(true)
+	//testSBFRandomStrings(true)
+	//testSBFRandomStringsWithLRU(true)
+	testLRUMemory(true)
+	//testSBFRandomStringsWithHashSet(true)
 	//testSBFConstantStrings(true)
 	//testSBFConstantStringsWithLRU(true)
 	//testSBFRandomStringsWithFastCache(true)

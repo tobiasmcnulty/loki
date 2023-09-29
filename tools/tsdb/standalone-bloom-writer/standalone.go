@@ -102,6 +102,39 @@ func testSBFRandomStringsWithLRU(doProfile bool) {
 			}
 		}
 	}
+	cache.Clear()
+	if doProfile {
+		f2, _ := os.Create("rand-strings-lru-mem.prof")
+		pprof.WriteHeapProfile(f2)
+		f2.Close()
+	}
+}
+
+func testLRUMemory(doProfile bool) {
+
+	cache := NewLRUCache4(100)
+
+	for i := 0; i < 10; i++ {
+		file, _ := os.Open("big.txt")
+		defer file.Close()
+		scanner := bufio.NewScanner(file)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			tokens := experiment.tokenizer.Tokens(line)
+			for _, token := range tokens {
+				if !cache.Get(token.Key) {
+					cache.Put(token.Key)
+				}
+			}
+		}
+		cache.Clear()
+	}
+	if doProfile {
+		f2, _ := os.Create("rand-strings-lru-mem.prof")
+		pprof.WriteHeapProfile(f2)
+		f2.Close()
+	}
 }
 
 /*
