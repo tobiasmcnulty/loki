@@ -23,6 +23,7 @@ func NewExperiment(name string, tokenizer Tokenizer, encodeChunkID bool, bloom f
 }
 
 const ExperimentLabel = "experiment"
+const QueryExperimentLabel = "query_experiment"
 
 type Metrics struct {
 	tenants    prometheus.Counter
@@ -42,6 +43,12 @@ type Metrics struct {
 	estimatedCount     *prometheus.HistogramVec // estimated number of elements in the bloom filter
 	estimatedErrorRate *prometheus.HistogramVec // estimated error rate of the bloom filter
 	bloomSize          *prometheus.HistogramVec // size of the bloom filter in bytes
+
+	totalChunkMatchesPerSeries *prometheus.CounterVec // total number of matches for a given string, iterating over all lines in a chunk
+	chunkMatchesPerSeries      *prometheus.CounterVec // number of matches for a given string in a chunk
+	sbfMatchesPerSeries        *prometheus.CounterVec // number of matches for a given string, using the bloom filter
+	missesPerSeries            *prometheus.CounterVec // number of cases where the bloom filter did not have a match, but the chunks contained the string (should be zero)
+	//counterPerSeries           *prometheus.CounterVec // number of matches for a given string
 }
 
 func NewMetrics(r prometheus.Registerer) *Metrics {
@@ -108,5 +115,27 @@ func NewMetrics(r prometheus.Registerer) *Metrics {
 			Help:    "Size of the bloom filter in bytes",
 			Buckets: prometheus.ExponentialBucketsRange(128, 16<<20, 8),
 		}, []string{ExperimentLabel}),
+		chunkMatchesPerSeries: promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+			Name: "chunk_matches_per_series",
+			Help: "Number of chunk matches per series",
+		}, []string{ExperimentLabel, QueryExperimentLabel}),
+		totalChunkMatchesPerSeries: promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+			Name: "total_chunk_matches_per_series",
+			Help: "Number of total chunk matches per series",
+		}, []string{ExperimentLabel, QueryExperimentLabel}),
+		sbfMatchesPerSeries: promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+			Name: "sbf_matches_per_series",
+			Help: "Number of sbf matches per series",
+		}, []string{ExperimentLabel, QueryExperimentLabel}),
+		missesPerSeries: promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+			Name: "sbf_misses_per_series",
+			Help: "Number of sbf misses per series",
+		}, []string{ExperimentLabel, QueryExperimentLabel}),
+		/*
+			counterPerSeries: promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+				Name: "sbf_counter_per_series",
+				Help: "Number of per series",
+			}),
+		*/
 	}
 }

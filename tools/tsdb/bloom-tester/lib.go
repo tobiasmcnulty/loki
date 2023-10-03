@@ -11,7 +11,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"math"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -195,8 +194,8 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 
 	var n int // count iterated series
 	//reportEvery := 10 // report every n chunks
-	pool := newPool(runtime.NumCPU())
-	//pool := newPool(8)
+	//pool := newPool(runtime.NumCPU())
+	pool := newPool(1)
 
 	for _, tenant := range tenants {
 		level.Info(util_log.Logger).Log("Analyzing tenant", tenant, "table", tableName)
