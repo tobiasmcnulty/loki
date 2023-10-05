@@ -7,11 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"github.com/grafana/dskit/services"
+	"github.com/grafana/loki/pkg/storage/chunk"
 	"github.com/grafana/loki/pkg/storage/config"
 	"github.com/prometheus/client_golang/prometheus"
+	"hash/fnv"
 	"math"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -25,7 +26,6 @@ import (
 	"github.com/grafana/loki/pkg/logproto"
 	"github.com/grafana/loki/pkg/logql/log"
 	"github.com/grafana/loki/pkg/storage"
-	"github.com/grafana/loki/pkg/storage/chunk"
 	"github.com/grafana/loki/pkg/storage/chunk/client"
 	"github.com/grafana/loki/pkg/storage/stores/indexshipper"
 	indexshipper_index "github.com/grafana/loki/pkg/storage/stores/indexshipper/index"
@@ -202,9 +202,9 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 	}
 	level.Info(util_log.Logger).Log("msg", "starting analyze()", "tester", testerNumber, "total", numTesters)
 
-	var n int // count iterated series
-	//reportEvery := 10 // report every n chunks
-	pool := newPool(runtime.NumCPU())
+	var n int         // count iterated series
+	reportEvery := 10 // report every n chunks
+	//pool := newPool(runtime.NumCPU())
 	//pool := newPool(1)
 
 	for _, tenant := range tenants {
@@ -219,34 +219,65 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 				}
 
 				casted := idx.(*tsdb.TSDBFile).Index.(*tsdb.TSDBIndex)
-				_ = casted.ForSeries(
+				_ = casted.ForSeriesAt(
 					context.Background(),
 					nil, model.Earliest, model.Latest,
-					func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta) {
-						chksCpy := make([]index.ChunkMeta, len(chks))
-						copy(chksCpy, chks)
-						pool.acquire(
+					func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta, pos int) {
+						workernumber := AssignToWorker(pos, numTesters)
+
+						//fmt.Println("num workers", numTesters)
+						//fmt.Println("pos", pos)
+						//fmt.Println("workernumber", workernumber)
+						//if workernumber == 1000 {
+						if workernumber == testerNumber {
+
+							chksCpy := make([]index.ChunkMeta, len(chks))
+							copy(chksCpy, chks)
+							/*(pool.acquire(
 							ls.Copy(),
 							fp,
 							chksCpy,
-							func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta) {
+							func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta) {*/
 
-								metrics.series.Inc()
-								metrics.chunks.Add(float64(len(chks)))
+							metrics.series.Inc()
+							metrics.chunks.Add(float64(len(chks)))
 
-								if !sampler.Sample() {
-									return
+							if !sampler.Sample() {
+								return
+							}
+
+							cache := NewLRUCache4(150000)
+							//chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
+
+							//splitChks := splitSlice(chks, numTesters)
+							//var transformed []chunk.Chunk
+							var firstTimeStamp model.Time
+							var lastTimeStamp model.Time
+							var firstFP uint64
+							var lastFP uint64
+
+							transformed := make([]chunk.Chunk, 0, len(chks))
+							for i, chk := range chks {
+								transformed = append(transformed, chunk.Chunk{
+									ChunkRef: logproto.ChunkRef{
+										Fingerprint: uint64(fp),
+										UserID:      tenant,
+										From:        chk.From(),
+										Through:     chk.Through(),
+										Checksum:    chk.Checksum,
+									},
+								})
+								if i == 0 {
+									firstTimeStamp = chk.From()
+									firstFP = uint64(fp)
 								}
+								if i == len(chks)-1 {
+									lastTimeStamp = chk.Through()
+									lastFP = uint64(fp)
+								}
+							}
 
-								cache := NewLRUCache4(150000)
-								//chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
-
-								splitChks := splitSlice(chks, numTesters)
-								var transformed []chunk.Chunk
-								var firstTimeStamp model.Time
-								var lastTimeStamp model.Time
-								var firstFP uint64
-								var lastFP uint64
+							/*
 								for i, chk := range splitChks[testerNumber] {
 									transformed = append(transformed, chunk.Chunk{
 										ChunkRef: logproto.ChunkRef{
@@ -265,64 +296,57 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									// yes I could do this just on the last one but I'm lazy
 									lastTimeStamp = chk.Through()
 									lastFP = uint64(fp)
+								}*/
+
+							got, err := client.GetChunks(
+								context.Background(),
+								transformed,
+							)
+							if err == nil {
+								// record raw chunk sizes
+								var chunkTotalUncompressedSize int
+								for _, c := range got {
+									chunkTotalUncompressedSize += c.Data.(*chunkenc.Facade).LokiChunk().UncompressedSize()
 								}
+								metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
+								n += len(got)
 
-								got, err := client.GetChunks(
-									context.Background(),
-									transformed,
-								)
-								if err == nil {
-									// record raw chunk sizes
-									var chunkTotalUncompressedSize int
-									for _, c := range got {
-										chunkTotalUncompressedSize += c.Data.(*chunkenc.Facade).LokiChunk().UncompressedSize()
+								// iterate experiments
+								for experimentIdx, experiment := range experiments {
+									//bucketPrefix := "experiment-pod-counts-"
+									//bucketPrefix := "experiment-read-tests-"
+									bucketPrefix := os.Getenv("BUCKET_PREFIX")
+									if strings.EqualFold(bucketPrefix, "") {
+										bucketPrefix = "named-experiments-"
 									}
-									metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
-									n += len(got)
+									if !sbfFileExists("bloomtests",
+										fmt.Sprint(bucketPrefix, experiment.name),
+										os.Getenv("BUCKET"),
+										tenant,
+										fmt.Sprint(firstFP),
+										fmt.Sprint(lastFP),
+										fmt.Sprint(firstTimeStamp),
+										fmt.Sprint(lastTimeStamp),
+										objectClient) {
 
-									// iterate experiments
-									for _, experiment := range experiments {
-										//bucketPrefix := "experiment-pod-counts-"
-										//bucketPrefix := "experiment-read-tests-"
-										bucketPrefix := os.Getenv("BUCKET_PREFIX")
-										if strings.EqualFold(bucketPrefix, "") {
-											bucketPrefix = "named-experiments-"
-										}
-										if !sbfFileExists("bloomtests",
-											fmt.Sprint(bucketPrefix, experiment.name),
-											os.Getenv("BUCKET"),
-											tenant,
-											fmt.Sprint(firstFP),
-											fmt.Sprint(lastFP),
-											fmt.Sprint(firstTimeStamp),
-											fmt.Sprint(lastTimeStamp),
-											objectClient) {
+										sbf := experiment.bloom()
+										cache.Clear()
 
-											sbf := experiment.bloom()
-											cache.Clear()
+										// Iterate chunks
+										var (
+											lines, inserts, collisions float64
+										)
+										for idx := range got {
+											chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
+											chunkTokenizer.reinit(got[idx].ChunkRef)
+											var tokenizer Tokenizer = chunkTokenizer
+											if !experiment.encodeChunkID {
+												tokenizer = experiment.tokenizer // so I don't have to change the lines of code below
+											}
+											lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
 
-											// Iterate chunks
-											var (
-												lines, inserts, collisions float64
-											)
-											for idx := range got {
-												// TODO this won't work if we stop encoding chunk id
-												/*
-													tokenizer := experiment.tokenizer
-													if experiment.encodeChunkID {
-														tokenizer = ChunkIDTokenizer(got[idx].ChunkRef, tokenizer)
-													}
-												*/
-												chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
-												chunkTokenizer.reinit(got[idx].ChunkRef)
-												var tokenizer Tokenizer = chunkTokenizer
-												if !experiment.encodeChunkID {
-													tokenizer = experiment.tokenizer // so I don't have to change the lines of code below
-												}
-												lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
-
-												// Only report on the last experiment since they run serially
-												/*if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
+											// Only report on the last experiment since they run serially
+											if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
 												estimatedProgress := float64(fp) / float64(model.Fingerprint(math.MaxUint64)) * 100.
 												level.Info(util_log.Logger).Log(
 													"msg", "iterated",
@@ -330,75 +354,75 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 													"chunks", len(chks),
 													"series", ls.String(),
 												)
-												}*/
+											}
 
-												itr, err := lc.Iterator(
-													context.Background(),
-													time.Unix(0, 0),
-													time.Unix(0, math.MaxInt64),
-													logproto.FORWARD,
-													log.NewNoopPipeline().ForStream(ls),
-												)
-												helpers.ExitErr("getting iterator", err)
+											itr, err := lc.Iterator(
+												context.Background(),
+												time.Unix(0, 0),
+												time.Unix(0, math.MaxInt64),
+												logproto.FORWARD,
+												log.NewNoopPipeline().ForStream(ls),
+											)
+											helpers.ExitErr("getting iterator", err)
 
-												for itr.Next() && itr.Error() == nil {
-													toks := tokenizer.Tokens(itr.Entry().Line)
-													lines++
-													for _, tok := range toks {
-														if tok.Key != nil {
-															//fmt.Println(tok.Key)
-															if !cache.Get(tok.Key) {
-																cache.Put(tok.Key)
-																if dup := sbf.TestAndAdd(tok.Key); dup {
-																	collisions++
-																}
-																inserts++
+											for itr.Next() && itr.Error() == nil {
+												toks := tokenizer.Tokens(itr.Entry().Line)
+												lines++
+												for _, tok := range toks {
+													if tok.Key != nil {
+														//fmt.Println(tok.Key)
+														if !cache.Get(tok.Key) {
+															cache.Put(tok.Key)
+															if dup := sbf.TestAndAdd(tok.Key); dup {
+																collisions++
 															}
+															inserts++
 														}
 													}
 												}
-												helpers.ExitErr("iterating chunks", itr.Error())
 											}
+											helpers.ExitErr("iterating chunks", itr.Error())
+										}
 
-											if len(got) > 0 {
-												metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
-												fillRatio := sbf.FillRatio()
-												metrics.hammingWeightRatio.WithLabelValues(experiment.name).Observe(fillRatio)
-												metrics.estimatedCount.WithLabelValues(experiment.name).Observe(
-													float64(estimatedCount(sbf.Capacity(), sbf.FillRatio())),
-												)
-												metrics.lines.WithLabelValues(experiment.name).Add(lines)
-												metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
-												metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
+										if len(got) > 0 {
+											metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
+											fillRatio := sbf.FillRatio()
+											metrics.hammingWeightRatio.WithLabelValues(experiment.name).Observe(fillRatio)
+											metrics.estimatedCount.WithLabelValues(experiment.name).Observe(
+												float64(estimatedCount(sbf.Capacity(), sbf.FillRatio())),
+											)
+											metrics.lines.WithLabelValues(experiment.name).Add(lines)
+											metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
+											metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
 
-												writeSBF(sbf,
-													os.Getenv("DIR"),
-													fmt.Sprint(bucketPrefix, experiment.name),
-													os.Getenv("BUCKET"),
-													tenant,
-													fmt.Sprint(firstFP),
-													fmt.Sprint(lastFP),
-													fmt.Sprint(firstTimeStamp),
-													fmt.Sprint(lastTimeStamp),
-													objectClient)
+											writeSBF(sbf,
+												os.Getenv("DIR"),
+												fmt.Sprint(bucketPrefix, experiment.name),
+												os.Getenv("BUCKET"),
+												tenant,
+												fmt.Sprint(firstFP),
+												fmt.Sprint(lastFP),
+												fmt.Sprint(firstTimeStamp),
+												fmt.Sprint(lastTimeStamp),
+												objectClient)
 
-												if err != nil {
-													helpers.ExitErr("writing sbf to file", err)
-												}
+											if err != nil {
+												helpers.ExitErr("writing sbf to file", err)
 											}
 										}
 									}
-								} else {
-									level.Info(util_log.Logger).Log("error getting chunks", err)
 								}
+							} else {
+								level.Info(util_log.Logger).Log("error getting chunks", err)
+							}
 
-								metrics.seriesKept.Inc()
-								metrics.chunksKept.Add(float64(len(chks)))
-								metrics.chunksPerSeries.Observe(float64(len(chks)))
+							metrics.seriesKept.Inc()
+							metrics.chunksKept.Add(float64(len(chks)))
+							metrics.chunksPerSeries.Observe(float64(len(chks)))
 
-							},
-						)
-
+							/*},
+							)*/
+						}
 					},
 					labels.MustNewMatcher(labels.MatchEqual, "", ""),
 				)
@@ -412,7 +436,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 	}
 
 	level.Info(util_log.Logger).Log("msg", "waiting for workers to finish")
-	pool.drain() // wait for workers to finishh
+	//pool.drain() // wait for workers to finishh
 	level.Info(util_log.Logger).Log("msg", "waiting for final scrape")
 	time.Sleep(30 * time.Second)         // allow final scrape
 	time.Sleep(time.Duration(1<<63 - 1)) // wait forever
@@ -466,12 +490,24 @@ func extractTesterNumber(input string) int {
 	return extractedNumber
 }
 
+func AssignToWorker(index int, numWorkers int) int {
+	// Calculate the hash of the index
+	h := fnv.New32a()
+	h.Write([]byte(fmt.Sprintf("%d", index)))
+	hash := int(h.Sum32())
+
+	// Use modulo to determine which worker should handle the index
+	workerID := hash % numWorkers
+
+	return workerID
+}
+
 func sbfFileExists(location, prefix, period, tenant, startfp, endfp, startts, endts string, objectClient client.ObjectClient) bool {
 	checkSum := "chksum" // TODO, this won't work once we start putting out checksums
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
 	fullPath := fmt.Sprintf("%s/%s-%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts, checkSum)
 
-	//fmt.Println(fullPath)
+	fmt.Println(fullPath)
 	result, _ := objectClient.ObjectExists(context.Background(), fullPath)
 
 	return result

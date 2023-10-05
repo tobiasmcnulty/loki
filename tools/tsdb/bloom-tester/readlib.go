@@ -123,7 +123,7 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 	//var n int // count iterated series
 	//reportEvery := 10 // report every n chunks
 	//pool := newPool(runtime.NumCPU())
-	pool := newPool(16)
+	//pool := newPool(16)
 	//searchString := os.Getenv("SEARCH_STRING")
 	//147854,148226,145541,145603,147159,147836,145551,145599,147393,147841,145265,145620,146181,147225,147167,146131,146189,146739,147510,145572,146710,148031,29,146205,147175,146984,147345
 	//mytenants := []string{"29"}
@@ -139,65 +139,79 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 				}
 
 				casted := idx.(*tsdb.TSDBFile).Index.(*tsdb.TSDBIndex)
-				_ = casted.ForSeries(
+				_ = casted.ForSeriesAt(
 					context.Background(),
 					nil, model.Earliest, model.Latest,
-					func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta) {
-						chksCpy := make([]index.ChunkMeta, len(chks))
-						copy(chksCpy, chks)
-						pool.acquire(
-							ls.Copy(),
-							fp,
-							chksCpy,
-							func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta) {
-								metrics.series.Inc()
-								metrics.chunks.Add(float64(len(chks)))
+					func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta, pos int) {
+						workernumber := AssignToWorker(pos, numTesters)
+						if workernumber == testerNumber {
 
-								if !sampler.Sample() {
-									return
+							chksCpy := make([]index.ChunkMeta, len(chks))
+							copy(chksCpy, chks)
+							/*
+								pool.acquire(
+									ls.Copy(),
+									fp,
+									chksCpy,
+									func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta) {*/
+							metrics.series.Inc()
+							metrics.chunks.Add(float64(len(chks)))
+
+							if !sampler.Sample() {
+								return
+							}
+							//chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
+
+							splitChks := splitSlice(chks, numTesters)
+							var transformed []chunk.Chunk
+							var firstTimeStamp model.Time
+							var lastTimeStamp model.Time
+							var firstFP uint64
+							var lastFP uint64
+							for i, chk := range splitChks[testerNumber] {
+								transformed = append(transformed, chunk.Chunk{
+									ChunkRef: logproto.ChunkRef{
+										Fingerprint: uint64(fp),
+										UserID:      tenant,
+										From:        chk.From(),
+										Through:     chk.Through(),
+										Checksum:    chk.Checksum,
+									},
+								})
+
+								if i == 0 {
+									firstTimeStamp = chk.From()
+									firstFP = uint64(fp)
 								}
-								//chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
+								// yes I could do this just on the last one but I'm lazy
+								lastTimeStamp = chk.Through()
+								lastFP = uint64(fp)
+							}
 
-								splitChks := splitSlice(chks, numTesters)
-								var transformed []chunk.Chunk
-								var firstTimeStamp model.Time
-								var lastTimeStamp model.Time
-								var firstFP uint64
-								var lastFP uint64
-								for i, chk := range splitChks[testerNumber] {
-									transformed = append(transformed, chunk.Chunk{
-										ChunkRef: logproto.ChunkRef{
-											Fingerprint: uint64(fp),
-											UserID:      tenant,
-											From:        chk.From(),
-											Through:     chk.Through(),
-											Checksum:    chk.Checksum,
-										},
-									})
-
-									if i == 0 {
-										firstTimeStamp = chk.From()
-										firstFP = uint64(fp)
+							got, err := client.GetChunks(
+								context.Background(),
+								transformed,
+							)
+							if err == nil {
+								// iterate experiments
+								for _, experiment := range experiments {
+									//bucketPrefix := "experiment-pod-counts-"
+									//bucketPrefix := "experiment-read-tests-"
+									bucketPrefix := os.Getenv("BUCKET_PREFIX")
+									if strings.EqualFold(bucketPrefix, "") {
+										bucketPrefix = "named-experiments-"
 									}
-									// yes I could do this just on the last one but I'm lazy
-									lastTimeStamp = chk.Through()
-									lastFP = uint64(fp)
-								}
+									if sbfFileExists("bloomtests",
+										fmt.Sprint(bucketPrefix, experiment.name),
+										os.Getenv("BUCKET"),
+										tenant,
+										fmt.Sprint(firstFP),
+										fmt.Sprint(lastFP),
+										fmt.Sprint(firstTimeStamp),
+										fmt.Sprint(lastTimeStamp),
+										objectClient) {
 
-								got, err := client.GetChunks(
-									context.Background(),
-									transformed,
-								)
-								if err == nil {
-									// iterate experiments
-									for _, experiment := range experiments {
-										//bucketPrefix := "experiment-pod-counts-"
-										//bucketPrefix := "experiment-read-tests-"
-										bucketPrefix := os.Getenv("BUCKET_PREFIX")
-										if strings.EqualFold(bucketPrefix, "") {
-											bucketPrefix = "named-experiments-"
-										}
-										if sbfFileExists("bloomtests",
+										sbf := readSBFFromObjectStorage("bloomtests",
 											fmt.Sprint(bucketPrefix, experiment.name),
 											os.Getenv("BUCKET"),
 											tenant,
@@ -205,116 +219,107 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 											fmt.Sprint(lastFP),
 											fmt.Sprint(firstTimeStamp),
 											fmt.Sprint(lastTimeStamp),
-											objectClient) {
+											objectClient)
 
-											sbf := readSBFFromObjectStorage("bloomtests",
-												fmt.Sprint(bucketPrefix, experiment.name),
-												os.Getenv("BUCKET"),
-												tenant,
-												fmt.Sprint(firstFP),
-												fmt.Sprint(lastFP),
-												fmt.Sprint(firstTimeStamp),
-												fmt.Sprint(lastTimeStamp),
-												objectClient)
+										for _, queryExperiment := range queryExperiments {
+											for gotIdx := range got {
+												linesCounted := 0
+												matchOnLine := 0
 
-											for _, queryExperiment := range queryExperiments {
-												for gotIdx := range got {
-													linesCounted := 0
-													matchOnLine := 0
+												if gotIdx == 0 {
+													chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
 
-													if gotIdx == 0 {
-														chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
+													chunkTokenizer.reinit(got[gotIdx].ChunkRef)
+													var tokenizer Tokenizer = chunkTokenizer
+													if !experiment.encodeChunkID {
+														tokenizer = experiment.tokenizer // so I don't have to change the lines of code below
+													}
 
-														chunkTokenizer.reinit(got[gotIdx].ChunkRef)
-														var tokenizer Tokenizer = chunkTokenizer
-														if !experiment.encodeChunkID {
-															tokenizer = experiment.tokenizer // so I don't have to change the lines of code below
-														}
-
-														numMatches := 0
-														tokens := tokenizer.Tokens(queryExperiment.searchString)
-														for _, token := range tokens {
-															if sbf.Test(token.Key) {
-																numMatches++
-															}
-														}
-														if (numMatches > 0) && (numMatches == len(tokens)) { // full sbf match
-															/*fmt.Println("Found it")
-															fmt.Println(fmt.Sprint(bucketPrefix, experiment.name),
-																os.Getenv("BUCKET"),
-																tenant,
-																fmt.Sprint(firstFP),
-																fmt.Sprint(lastFP),
-																fmt.Sprint(firstTimeStamp),
-																fmt.Sprint(lastTimeStamp))
-															*/
-															metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+													numMatches := 0
+													tokens := tokenizer.Tokens(queryExperiment.searchString)
+													for _, token := range tokens {
+														if sbf.Test(token.Key) {
+															numMatches++
 														}
 													}
-													//tokenizer := chunkTokenizer // so I don't have to change the lines of code below
-													lc := got[gotIdx].Data.(*chunkenc.Facade).LokiChunk()
-
-													itr, err := lc.Iterator(
-														context.Background(),
-														time.Unix(0, 0),
-														time.Unix(0, math.MaxInt64),
-														logproto.FORWARD,
-														log.NewNoopPipeline().ForStream(ls),
-													)
-													helpers.ExitErr("getting iterator", err)
-
-													for itr.Next() && itr.Error() == nil {
-														//fmt.Println("Line:", itr.Entry().Line)
-														linesCounted++
-
-														if strings.Contains(itr.Entry().Line, queryExperiment.searchString) {
-															//fmt.Println(itr.Entry().Line)
-															matchOnLine++
-														} else {
-														}
+													if (numMatches > 0) && (numMatches == len(tokens)) { // full sbf match
+														/*fmt.Println("Found it")
+														fmt.Println(fmt.Sprint(bucketPrefix, experiment.name),
+															os.Getenv("BUCKET"),
+															tenant,
+															fmt.Sprint(firstFP),
+															fmt.Sprint(lastFP),
+															fmt.Sprint(firstTimeStamp),
+															fmt.Sprint(lastTimeStamp))
+														*/
+														metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
 													}
-													/*
-														numMatches := 0
-														tokens := tokenizer.Tokens(queryExperiment.searchString)
-														for _, token := range tokens {
-															if sbf.Test(token.Key) {
-																numMatches++
-															}
-														}*/
-
-													if matchOnLine > 0 {
-														metrics.chunkMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
-														metrics.totalChunkMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Add(float64(matchOnLine))
-													}
-													/*
-														if numMatches == len(tokens) { // full sbf match
-															metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
-														}*/
-
-													helpers.ExitErr("iterating chunks", itr.Error())
 												}
+												//tokenizer := chunkTokenizer // so I don't have to change the lines of code below
+												lc := got[gotIdx].Data.(*chunkenc.Facade).LokiChunk()
 
-												if len(got) > 0 {
-													//metrics.counterPerSeries.Inc()
-													metrics.lines.WithLabelValues(experiment.name).Add(float64(len(got)))
+												itr, err := lc.Iterator(
+													context.Background(),
+													time.Unix(0, 0),
+													time.Unix(0, math.MaxInt64),
+													logproto.FORWARD,
+													log.NewNoopPipeline().ForStream(ls),
+												)
+												helpers.ExitErr("getting iterator", err)
+
+												for itr.Next() && itr.Error() == nil {
+													//fmt.Println("Line:", itr.Entry().Line)
+													linesCounted++
+
+													if strings.Contains(itr.Entry().Line, queryExperiment.searchString) {
+														//fmt.Println(itr.Entry().Line)
+														matchOnLine++
+													} else {
+													}
 												}
+												/*
+													numMatches := 0
+													tokens := tokenizer.Tokens(queryExperiment.searchString)
+													for _, token := range tokens {
+														if sbf.Test(token.Key) {
+															numMatches++
+														}
+													}*/
+
+												if matchOnLine > 0 {
+													metrics.chunkMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+													metrics.totalChunkMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Add(float64(matchOnLine))
+												}
+												/*
+													if numMatches == len(tokens) { // full sbf match
+														metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+													}*/
+
+												helpers.ExitErr("iterating chunks", itr.Error())
 											}
 
-										} else {
-											//fmt.Println("sbf doesnt' ")
+											if len(got) > 0 {
+												//metrics.counterPerSeries.Inc()
+												metrics.lines.WithLabelValues(experiment.name).Add(float64(len(got)))
+											}
 										}
+
+									} else {
+										//fmt.Println("sbf doesnt' ")
 									}
-								} else {
-									level.Info(util_log.Logger).Log("error getting chunks", err)
 								}
+							} else {
+								level.Info(util_log.Logger).Log("error getting chunks", err)
+							}
 
-								metrics.seriesKept.Inc()
-								metrics.chunksKept.Add(float64(len(chks)))
-								metrics.chunksPerSeries.Observe(float64(len(chks)))
-
-							},
-						)
-
+							metrics.seriesKept.Inc()
+							metrics.chunksKept.Add(float64(len(chks)))
+							metrics.chunksPerSeries.Observe(float64(len(chks)))
+							/*
+									},
+								)
+							*/
+						}
 					},
 					labels.MustNewMatcher(labels.MatchEqual, "", ""),
 				)

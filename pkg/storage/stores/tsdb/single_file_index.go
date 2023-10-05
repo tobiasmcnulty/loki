@@ -223,7 +223,40 @@ func (i *TSDBIndex) ForSeries(ctx context.Context, shard *index.ShardAnnotation,
 		}
 		return p.Err()
 	})
+}
 
+func (i *TSDBIndex) ForSeriesAt(ctx context.Context, shard *index.ShardAnnotation, from model.Time, through model.Time, fn func(labels.Labels, model.Fingerprint, []index.ChunkMeta, int), matchers ...*labels.Matcher) error {
+	// TODO(owen-d): use pool
+
+	var ls labels.Labels
+	chks := ChunkMetasPool.Get()
+	defer ChunkMetasPool.Put(chks)
+
+	var filterer chunk.Filterer
+	if i.chunkFilter != nil {
+		filterer = i.chunkFilter.ForRequest(ctx)
+	}
+
+	return i.postingsReader.ForPostings(ctx, matchers, func(p index.Postings) error {
+		for p.Next() {
+			hash, err := i.reader.Series(p.At(), int64(from), int64(through), &ls, &chks)
+			if err != nil {
+				return err
+			}
+
+			// skip series that belong to different shards
+			if shard != nil && !shard.Match(model.Fingerprint(hash)) {
+				continue
+			}
+
+			if filterer != nil && filterer.ShouldFilter(ls) {
+				continue
+			}
+
+			fn(ls, model.Fingerprint(hash), chks, int(p.At()))
+		}
+		return p.Err()
+	})
 }
 
 func (i *TSDBIndex) GetChunkRefs(ctx context.Context, userID string, from, through model.Time, res []ChunkRef, shard *index.ShardAnnotation, matchers ...*labels.Matcher) ([]ChunkRef, error) {
