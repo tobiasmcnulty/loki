@@ -43,11 +43,12 @@ func NewQueryExperiment(name string, searchString string) QueryExperiment {
 }
 
 var queryExperiments = []QueryExperiment{
-	NewQueryExperiment("short_common_word", "trace"),
+	//NewQueryExperiment("short_common_word", "trace"),
 	//NewQueryExperiment("common_three_letter_word", "k8s"),
-	NewQueryExperiment("specific_trace", "traceID=2279ea7e83dc812e"),
-	NewQueryExperiment("specific_uuid", "8b6b631f-111f-4b29-b435-1e1e4e04aa8c"),
-	NewQueryExperiment("longer_string_that_exists", "synthetic-monitoring-agent"),
+	//NewQueryExperiment("specific_trace", "traceID=2279ea7e83dc812e"),
+	//NewQueryExperiment("specific_uuid", "8b6b631f-111f-4b29-b435-1e1e4e04aa8c"),
+	NewQueryExperiment("test", "2b1a5e46-36a2-4694-a4b1-f34cc7bdfc45"),
+	//NewQueryExperiment("longer_string_that_exists", "synthetic-monitoring-agent"),
 	//NewQueryExperiment("longer_string_that_doesnt_exist", "abcdefghjiklmnopqrstuvwxyzzy1234567890"),
 }
 
@@ -69,7 +70,12 @@ func executeRead() {
 	openFn := func(p string) (indexshipper_index.Index, error) {
 		return tsdb.OpenShippableTSDB(p, tsdb.IndexOpts{})
 	}
+	/*
+		fmt.Println(objectClient.ObjectExists(context.Background(), "bloomtests/experiment-names-token=3skip0_error=1%_indexchunks=true/19625/29/83887662724769268-83887662724769268-1695591477.718-1695606732.376-chksum"))
+		fmt.Println(objectClient.ObjectExists(context.Background(), "bloomtests/experiment-names-token%3D3skip0_error%3D1%25_indexchunks%3Dtrue/19625/29/83887662724769268-83887662724769268-1695591477.718-1695606732.376-chksum"))
+		time.Sleep(30 * time.Second)
 
+	*/
 	shipper, err := indexshipper.NewIndexShipper(
 		conf.StorageConfig.TSDBShipperConfig.Config,
 		objectClient,
@@ -117,9 +123,10 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 	//var n int // count iterated series
 	//reportEvery := 10 // report every n chunks
 	//pool := newPool(runtime.NumCPU())
-	pool := newPool(1)
+	pool := newPool(16)
 	//searchString := os.Getenv("SEARCH_STRING")
-
+	//147854,148226,145541,145603,147159,147836,145551,145599,147393,147841,145265,145620,146181,147225,147167,146131,146189,146739,147510,145572,146710,148031,29,146205,147175,146984,147345
+	//mytenants := []string{"29"}
 	for _, tenant := range tenants {
 		level.Info(util_log.Logger).Log("Analyzing tenant", tenant, "table", tableName)
 		err := shipper.ForEach(
@@ -143,7 +150,6 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 							fp,
 							chksCpy,
 							func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta) {
-
 								metrics.series.Inc()
 								metrics.chunks.Add(float64(len(chks)))
 
@@ -184,15 +190,15 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 								)
 								if err == nil {
 									// iterate experiments
-									for experimentIdx, experiment := range experiments {
+									for _, experiment := range experiments {
 										//bucketPrefix := "experiment-pod-counts-"
 										//bucketPrefix := "experiment-read-tests-"
 										bucketPrefix := os.Getenv("BUCKET_PREFIX")
 										if strings.EqualFold(bucketPrefix, "") {
-											bucketPrefix = "experiments-"
+											bucketPrefix = "named-experiments-"
 										}
 										if sbfFileExists("bloomtests",
-											fmt.Sprint(bucketPrefix, experimentIdx),
+											fmt.Sprint(bucketPrefix, experiment.name),
 											os.Getenv("BUCKET"),
 											tenant,
 											fmt.Sprint(firstFP),
@@ -202,7 +208,7 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 											objectClient) {
 
 											sbf := readSBFFromObjectStorage("bloomtests",
-												fmt.Sprint(bucketPrefix, experimentIdx),
+												fmt.Sprint(bucketPrefix, experiment.name),
 												os.Getenv("BUCKET"),
 												tenant,
 												fmt.Sprint(firstFP),
@@ -212,18 +218,41 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 												objectClient)
 
 											for _, queryExperiment := range queryExperiments {
-												for idx := range got {
+												for gotIdx := range got {
 													linesCounted := 0
 													matchOnLine := 0
-													chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
 
-													chunkTokenizer.reinit(got[idx].ChunkRef)
-													var tokenizer Tokenizer = chunkTokenizer
-													if !experiment.encodeChunkID {
-														tokenizer = experiment.tokenizer // so I don't have to change the lines of code below
+													if gotIdx == 0 {
+														chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
+
+														chunkTokenizer.reinit(got[gotIdx].ChunkRef)
+														var tokenizer Tokenizer = chunkTokenizer
+														if !experiment.encodeChunkID {
+															tokenizer = experiment.tokenizer // so I don't have to change the lines of code below
+														}
+
+														numMatches := 0
+														tokens := tokenizer.Tokens(queryExperiment.searchString)
+														for _, token := range tokens {
+															if sbf.Test(token.Key) {
+																numMatches++
+															}
+														}
+														if (numMatches > 0) && (numMatches == len(tokens)) { // full sbf match
+															/*fmt.Println("Found it")
+															fmt.Println(fmt.Sprint(bucketPrefix, experiment.name),
+																os.Getenv("BUCKET"),
+																tenant,
+																fmt.Sprint(firstFP),
+																fmt.Sprint(lastFP),
+																fmt.Sprint(firstTimeStamp),
+																fmt.Sprint(lastTimeStamp))
+															*/
+															metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+														}
 													}
 													//tokenizer := chunkTokenizer // so I don't have to change the lines of code below
-													lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
+													lc := got[gotIdx].Data.(*chunkenc.Facade).LokiChunk()
 
 													itr, err := lc.Iterator(
 														context.Background(),
@@ -244,40 +273,24 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 														} else {
 														}
 													}
-													numMatches := 0
-													tokens := tokenizer.Tokens(queryExperiment.searchString)
-													for _, token := range tokens {
-														if sbf.Test(token.Key) {
-															numMatches++
-														}
-													}
+													/*
+														numMatches := 0
+														tokens := tokenizer.Tokens(queryExperiment.searchString)
+														for _, token := range tokens {
+															if sbf.Test(token.Key) {
+																numMatches++
+															}
+														}*/
+
 													if matchOnLine > 0 {
 														metrics.chunkMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
 														metrics.totalChunkMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Add(float64(matchOnLine))
 													}
-													if numMatches == len(tokens) {
-														//fullMatchOnSbf++
-														metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
-													}
 													/*
-														if (matchOnLine == 0) && (numMatches > 0) {
-															metrics.falsePositivesPerSeries.Inc()
+														if numMatches == len(tokens) { // full sbf match
+															metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
 														}*/
-													if matchOnLine > 0 && numMatches == 0 {
-														metrics.missesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
-													}
-													/*
-														fmt.Println("Num Matches:", numMatches)
-														fmt.Println("len tokens", len(tokens))
-														//fmt.Println("match on chunk", matchOnChunk)
-														fmt.Println("match on line", matchOnLine)
-														fmt.Println("Full match on sbf: ", fullMatchOnSbf)
-														fmt.Println("Single match on sbf: ", singleMatchOnSbf)
-														fmt.Println("Misses: ", misses)
-														fmt.Println("lines counted", linesCounted)
-														fmt.Println("------")
-														time.Sleep(10 * time.Second)
-													*/
+
 													helpers.ExitErr("iterating chunks", itr.Error())
 												}
 
@@ -286,6 +299,9 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 													metrics.lines.WithLabelValues(experiment.name).Add(float64(len(got)))
 												}
 											}
+
+										} else {
+											//fmt.Println("sbf doesnt' ")
 										}
 									}
 								} else {

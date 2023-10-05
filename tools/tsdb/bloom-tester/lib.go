@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"math"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -203,8 +204,8 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 
 	var n int // count iterated series
 	//reportEvery := 10 // report every n chunks
-	//pool := newPool(runtime.NumCPU())
-	pool := newPool(1)
+	pool := newPool(runtime.NumCPU())
+	//pool := newPool(1)
 
 	for _, tenant := range tenants {
 		level.Info(util_log.Logger).Log("Analyzing tenant", tenant, "table", tableName)
@@ -280,15 +281,15 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									n += len(got)
 
 									// iterate experiments
-									for experimentIdx, experiment := range experiments {
+									for _, experiment := range experiments {
 										//bucketPrefix := "experiment-pod-counts-"
 										//bucketPrefix := "experiment-read-tests-"
 										bucketPrefix := os.Getenv("BUCKET_PREFIX")
 										if strings.EqualFold(bucketPrefix, "") {
-											bucketPrefix = "experiments-"
+											bucketPrefix = "named-experiments-"
 										}
 										if !sbfFileExists("bloomtests",
-											fmt.Sprint(bucketPrefix, experimentIdx),
+											fmt.Sprint(bucketPrefix, experiment.name),
 											os.Getenv("BUCKET"),
 											tenant,
 											fmt.Sprint(firstFP),
@@ -345,6 +346,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 													lines++
 													for _, tok := range toks {
 														if tok.Key != nil {
+															//fmt.Println(tok.Key)
 															if !cache.Get(tok.Key) {
 																cache.Put(tok.Key)
 																if dup := sbf.TestAndAdd(tok.Key); dup {
@@ -371,7 +373,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 
 												writeSBF(sbf,
 													os.Getenv("DIR"),
-													fmt.Sprint(bucketPrefix, experimentIdx),
+													fmt.Sprint(bucketPrefix, experiment.name),
 													os.Getenv("BUCKET"),
 													tenant,
 													fmt.Sprint(firstFP),
@@ -469,6 +471,7 @@ func sbfFileExists(location, prefix, period, tenant, startfp, endfp, startts, en
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
 	fullPath := fmt.Sprintf("%s/%s-%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts, checkSum)
 
+	//fmt.Println(fullPath)
 	result, _ := objectClient.ObjectExists(context.Background(), fullPath)
 
 	return result
