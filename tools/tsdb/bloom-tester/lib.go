@@ -225,14 +225,17 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 					func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta, pos int) {
 						workernumber := AssignToWorker(pos, numTesters)
 
-						//fmt.Println("num workers", numTesters)
-						//fmt.Println("pos", pos)
-						//fmt.Println("workernumber", workernumber)
-						//if workernumber == 1000 {
+						/*
+							fmt.Println("num workers", numTesters)
+							fmt.Println("pos", pos)
+							fmt.Println("workernumber", workernumber)
+							if workernumber == 1000 {
+
+						*/
 						if workernumber == testerNumber {
 
-							chksCpy := make([]index.ChunkMeta, len(chks))
-							copy(chksCpy, chks)
+							//chksCpy := make([]index.ChunkMeta, len(chks))
+							//copy(chksCpy, chks)
 							/*(pool.acquire(
 							ls.Copy(),
 							fp,
@@ -507,9 +510,9 @@ func sbfFileExists(location, prefix, period, tenant, startfp, endfp, startts, en
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
 	fullPath := fmt.Sprintf("%s/%s-%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts, checkSum)
 
-	fmt.Println(fullPath)
+	//	fmt.Println(fullPath)
 	result, _ := objectClient.ObjectExists(context.Background(), fullPath)
-
+	fmt.Println(fullPath, result)
 	return result
 }
 

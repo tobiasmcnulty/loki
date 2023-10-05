@@ -228,6 +228,7 @@ func (i *TSDBIndex) ForSeries(ctx context.Context, shard *index.ShardAnnotation,
 func (i *TSDBIndex) ForSeriesAt(ctx context.Context, shard *index.ShardAnnotation, from model.Time, through model.Time, fn func(labels.Labels, model.Fingerprint, []index.ChunkMeta, int), matchers ...*labels.Matcher) error {
 	// TODO(owen-d): use pool
 
+	counter := 0
 	var ls labels.Labels
 	chks := ChunkMetasPool.Get()
 	defer ChunkMetasPool.Put(chks)
@@ -239,6 +240,7 @@ func (i *TSDBIndex) ForSeriesAt(ctx context.Context, shard *index.ShardAnnotatio
 
 	return i.postingsReader.ForPostings(ctx, matchers, func(p index.Postings) error {
 		for p.Next() {
+			counter++
 			hash, err := i.reader.Series(p.At(), int64(from), int64(through), &ls, &chks)
 			if err != nil {
 				return err
@@ -253,7 +255,7 @@ func (i *TSDBIndex) ForSeriesAt(ctx context.Context, shard *index.ShardAnnotatio
 				continue
 			}
 
-			fn(ls, model.Fingerprint(hash), chks, int(p.At()))
+			fn(ls, model.Fingerprint(hash), chks, counter)
 		}
 		return p.Err()
 	})

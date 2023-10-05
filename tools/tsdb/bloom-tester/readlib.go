@@ -43,12 +43,12 @@ func NewQueryExperiment(name string, searchString string) QueryExperiment {
 }
 
 var queryExperiments = []QueryExperiment{
-	//NewQueryExperiment("short_common_word", "trace"),
+	NewQueryExperiment("short_common_word", "trace"),
 	//NewQueryExperiment("common_three_letter_word", "k8s"),
 	//NewQueryExperiment("specific_trace", "traceID=2279ea7e83dc812e"),
 	//NewQueryExperiment("specific_uuid", "8b6b631f-111f-4b29-b435-1e1e4e04aa8c"),
 	NewQueryExperiment("test", "2b1a5e46-36a2-4694-a4b1-f34cc7bdfc45"),
-	//NewQueryExperiment("longer_string_that_exists", "synthetic-monitoring-agent"),
+	NewQueryExperiment("longer_string_that_exists", "synthetic-monitoring-agent"),
 	//NewQueryExperiment("longer_string_that_doesnt_exist", "abcdefghjiklmnopqrstuvwxyzzy1234567890"),
 }
 
@@ -146,8 +146,8 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 						workernumber := AssignToWorker(pos, numTesters)
 						if workernumber == testerNumber {
 
-							chksCpy := make([]index.ChunkMeta, len(chks))
-							copy(chksCpy, chks)
+							//chksCpy := make([]index.ChunkMeta, len(chks))
+							//copy(chksCpy, chks)
 							/*
 								pool.acquire(
 									ls.Copy(),
@@ -162,13 +162,38 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 							}
 							//chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
 
-							splitChks := splitSlice(chks, numTesters)
-							var transformed []chunk.Chunk
+							//splitChks := splitSlice(chks, numTesters)
+							/*
+								var transformed []chunk.Chunk
+								var firstTimeStamp model.Time
+								var lastTimeStamp model.Time
+								var firstFP uint64
+								var lastFP uint64
+								for i, chk := range splitChks[testerNumber] {
+									transformed = append(transformed, chunk.Chunk{
+										ChunkRef: logproto.ChunkRef{
+											Fingerprint: uint64(fp),
+											UserID:      tenant,
+											From:        chk.From(),
+											Through:     chk.Through(),
+											Checksum:    chk.Checksum,
+										},
+									})
+
+									if i == 0 {
+										firstTimeStamp = chk.From()
+										firstFP = uint64(fp)
+									}
+									// yes I could do this just on the last one but I'm lazy
+									lastTimeStamp = chk.Through()
+									lastFP = uint64(fp)
+								}*/
 							var firstTimeStamp model.Time
 							var lastTimeStamp model.Time
 							var firstFP uint64
 							var lastFP uint64
-							for i, chk := range splitChks[testerNumber] {
+							transformed := make([]chunk.Chunk, 0, len(chks))
+							for i, chk := range chks {
 								transformed = append(transformed, chunk.Chunk{
 									ChunkRef: logproto.ChunkRef{
 										Fingerprint: uint64(fp),
@@ -178,14 +203,14 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 										Checksum:    chk.Checksum,
 									},
 								})
-
 								if i == 0 {
 									firstTimeStamp = chk.From()
 									firstFP = uint64(fp)
 								}
-								// yes I could do this just on the last one but I'm lazy
-								lastTimeStamp = chk.Through()
-								lastFP = uint64(fp)
+								if i == len(chks)-1 {
+									lastTimeStamp = chk.Through()
+									lastFP = uint64(fp)
+								}
 							}
 
 							got, err := client.GetChunks(
@@ -222,9 +247,12 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 											objectClient)
 
 										for _, queryExperiment := range queryExperiments {
+											foundInSbf := false
+											foundInChunk := false
 											for gotIdx := range got {
 												linesCounted := 0
 												matchOnLine := 0
+												foundInChunk = false
 
 												if gotIdx == 0 {
 													chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
@@ -252,7 +280,9 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 															fmt.Sprint(firstTimeStamp),
 															fmt.Sprint(lastTimeStamp))
 														*/
+														foundInSbf = true
 														metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+														fmt.Println("Found: ", queryExperiment.name, " in ", experiment.name, " for ", tenant)
 													}
 												}
 												//tokenizer := chunkTokenizer // so I don't have to change the lines of code below
@@ -272,8 +302,9 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 													linesCounted++
 
 													if strings.Contains(itr.Entry().Line, queryExperiment.searchString) {
-														//fmt.Println(itr.Entry().Line)
+														//fmt.Println("Line match: ", itr.Entry().Line)
 														matchOnLine++
+														foundInChunk = true
 													} else {
 													}
 												}
@@ -289,6 +320,20 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 												if matchOnLine > 0 {
 													metrics.chunkMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
 													metrics.totalChunkMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Add(float64(matchOnLine))
+												}
+												if foundInChunk {
+													if foundInSbf {
+														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Positive).Inc()
+													} else {
+														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Negative).Inc()
+													}
+												} else {
+													if foundInSbf {
+														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Positive).Inc()
+													} else {
+														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Negative).Inc()
+													}
+
 												}
 												/*
 													if numMatches == len(tokens) { // full sbf match

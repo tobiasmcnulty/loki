@@ -24,6 +24,11 @@ func NewExperiment(name string, tokenizer Tokenizer, encodeChunkID bool, bloom f
 
 const ExperimentLabel = "experiment"
 const QueryExperimentLabel = "query_experiment"
+const LookupResultType = "lookup_result_type"
+const False_Positive = "false_postive"
+const False_Negative = "false_negative"
+const True_Positive = "true_positive"
+const True_Negative = "true_negative"
 
 type Metrics struct {
 	tenants    prometheus.Counter
@@ -49,6 +54,8 @@ type Metrics struct {
 	sbfMatchesPerSeries        *prometheus.CounterVec // number of matches for a given string, using the bloom filter
 	missesPerSeries            *prometheus.CounterVec // number of cases where the bloom filter did not have a match, but the chunks contained the string (should be zero)
 	//counterPerSeries           *prometheus.CounterVec // number of matches for a given string
+
+	sbfLookups *prometheus.CounterVec
 }
 
 func NewMetrics(r prometheus.Registerer) *Metrics {
@@ -131,6 +138,10 @@ func NewMetrics(r prometheus.Registerer) *Metrics {
 			Name: "sbf_misses_per_series",
 			Help: "Number of sbf misses per series",
 		}, []string{ExperimentLabel, QueryExperimentLabel}),
+		sbfLookups: promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+			Name: "sbf_lookups",
+			Help: "sbf lookup results",
+		}, []string{ExperimentLabel, QueryExperimentLabel, LookupResultType}),
 		/*
 			counterPerSeries: promauto.With(r).NewCounterVec(prometheus.CounterOpts{
 				Name: "sbf_counter_per_series",
