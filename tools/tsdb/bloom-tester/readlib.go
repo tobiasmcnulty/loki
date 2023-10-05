@@ -44,9 +44,11 @@ func NewQueryExperiment(name string, searchString string) QueryExperiment {
 
 var queryExperiments = []QueryExperiment{
 	NewQueryExperiment("short_common_word", "trace"),
-	NewQueryExperiment("common_three_letter_word", "k8s"),
+	//NewQueryExperiment("common_three_letter_word", "k8s"),
 	NewQueryExperiment("specific_trace", "traceID=2279ea7e83dc812e"),
 	NewQueryExperiment("specific_uuid", "8b6b631f-111f-4b29-b435-1e1e4e04aa8c"),
+	NewQueryExperiment("longer_string_that_exists", "synthetic-monitoring-agent"),
+	//NewQueryExperiment("longer_string_that_doesnt_exist", "abcdefghjiklmnopqrstuvwxyzzy1234567890"),
 }
 
 func executeRead() {
@@ -148,7 +150,7 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 								if !sampler.Sample() {
 									return
 								}
-								chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
+								//chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
 
 								splitChks := splitSlice(chks, numTesters)
 								var transformed []chunk.Chunk
@@ -183,7 +185,12 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 								if err == nil {
 									// iterate experiments
 									for experimentIdx, experiment := range experiments {
-										bucketPrefix := "experiment-pod-counts-"
+										//bucketPrefix := "experiment-pod-counts-"
+										//bucketPrefix := "experiment-read-tests-"
+										bucketPrefix := os.Getenv("BUCKET_PREFIX")
+										if strings.EqualFold(bucketPrefix, "") {
+											bucketPrefix = "experiments-"
+										}
 										if sbfFileExists("bloomtests",
 											fmt.Sprint(bucketPrefix, experimentIdx),
 											os.Getenv("BUCKET"),
@@ -208,9 +215,14 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 												for idx := range got {
 													linesCounted := 0
 													matchOnLine := 0
+													chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
 
 													chunkTokenizer.reinit(got[idx].ChunkRef)
-													tokenizer := chunkTokenizer // so I don't have to change the lines of code below
+													var tokenizer Tokenizer = chunkTokenizer
+													if !experiment.encodeChunkID {
+														tokenizer = experiment.tokenizer // so I don't have to change the lines of code below
+													}
+													//tokenizer := chunkTokenizer // so I don't have to change the lines of code below
 													lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
 
 													itr, err := lc.Iterator(

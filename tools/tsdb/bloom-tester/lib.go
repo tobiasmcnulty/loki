@@ -110,65 +110,74 @@ var experiments = []Experiment{
 			false,
 			onePctError,
 		),
+	*/
 
-		NewExperiment(
-			"token=3skip1_error=1%_indexchunks=true",
-			threeSkip1,
-			true,
-			onePctError,
-		),
+	NewExperiment(
+		"token=3skip1_error=1%_indexchunks=true",
+		threeSkip1,
+		true,
+		onePctError,
+	),
+	/*
 		NewExperiment(
 			"token=3skip1_error=1%_indexchunks=false",
 			threeSkip1,
 			false,
 			onePctError,
 		),
+	*/
 
-		NewExperiment(
-			"token=3skip2_error=1%_indexchunks=true",
-			threeSkip2,
-			true,
-			onePctError,
-		),
+	NewExperiment(
+		"token=3skip2_error=1%_indexchunks=true",
+		threeSkip2,
+		true,
+		onePctError,
+	),
+	/*
 		NewExperiment(
 			"token=3skip2_error=1%_indexchunks=false",
 			threeSkip2,
 			false,
 			onePctError,
 		),
+	*/
 
-		NewExperiment(
-			"token=3skip0_error=5%_indexchunks=true",
-			three,
-			true,
-			fivePctError,
-		),
+	NewExperiment(
+		"token=3skip0_error=5%_indexchunks=true",
+		three,
+		true,
+		fivePctError,
+	),
+	/*
 		NewExperiment(
 			"token=3skip0_error=5%_indexchunks=false",
 			three,
 			false,
 			fivePctError,
 		),
-
-		NewExperiment(
-			"token=3skip1_error=5%_indexchunks=true",
-			threeSkip1,
-			true,
-			fivePctError,
-		),
+	*/
+	NewExperiment(
+		"token=3skip1_error=5%_indexchunks=true",
+		threeSkip1,
+		true,
+		fivePctError,
+	),
+	/*
 		NewExperiment(
 			"token=3skip1_error=5%_indexchunks=false",
 			threeSkip1,
 			false,
 			fivePctError,
 		),
+	*/
 
-		NewExperiment(
-			"token=3skip2_error=5%_indexchunks=true",
-			threeSkip2,
-			true,
-			fivePctError,
-		),
+	NewExperiment(
+		"token=3skip2_error=5%_indexchunks=true",
+		threeSkip2,
+		true,
+		fivePctError,
+	),
+	/*
 		NewExperiment(
 			"token=3skip2_error=5%_indexchunks=false",
 			threeSkip2,
@@ -229,7 +238,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 								}
 
 								cache := NewLRUCache4(150000)
-								chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
+								//chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
 
 								splitChks := splitSlice(chks, numTesters)
 								var transformed []chunk.Chunk
@@ -272,7 +281,12 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 
 									// iterate experiments
 									for experimentIdx, experiment := range experiments {
-										bucketPrefix := "experiment-pod-counts-"
+										//bucketPrefix := "experiment-pod-counts-"
+										//bucketPrefix := "experiment-read-tests-"
+										bucketPrefix := os.Getenv("BUCKET_PREFIX")
+										if strings.EqualFold(bucketPrefix, "") {
+											bucketPrefix = "experiments-"
+										}
 										if !sbfFileExists("bloomtests",
 											fmt.Sprint(bucketPrefix, experimentIdx),
 											os.Getenv("BUCKET"),
@@ -291,15 +305,19 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												lines, inserts, collisions float64
 											)
 											for idx := range got {
-												// TODO this won't work if we add more experiments or stop encoding chunk id
+												// TODO this won't work if we stop encoding chunk id
 												/*
 													tokenizer := experiment.tokenizer
 													if experiment.encodeChunkID {
 														tokenizer = ChunkIDTokenizer(got[idx].ChunkRef, tokenizer)
 													}
 												*/
+												chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
 												chunkTokenizer.reinit(got[idx].ChunkRef)
-												tokenizer := chunkTokenizer // so I don't have to change the lines of code below
+												var tokenizer Tokenizer = chunkTokenizer
+												if !experiment.encodeChunkID {
+													tokenizer = experiment.tokenizer // so I don't have to change the lines of code below
+												}
 												lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
 
 												// Only report on the last experiment since they run serially
