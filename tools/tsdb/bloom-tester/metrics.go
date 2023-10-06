@@ -54,7 +54,8 @@ type Metrics struct {
 	sbfMatchesPerSeries        *prometheus.CounterVec // number of matches for a given string, using the bloom filter
 	missesPerSeries            *prometheus.CounterVec // number of cases where the bloom filter did not have a match, but the chunks contained the string (should be zero)
 	//counterPerSeries           *prometheus.CounterVec // number of matches for a given string
-	sbfCount prometheus.Counter // number of chunks
+	sbfCount        prometheus.Counter // number of chunks
+	experimentCount prometheus.Counter // number of experiments performed
 
 	sbfLookups *prometheus.CounterVec
 }
@@ -84,6 +85,10 @@ func NewMetrics(r prometheus.Registerer) *Metrics {
 		sbfCount: promauto.With(r).NewCounter(prometheus.CounterOpts{
 			Name: "bloom_files_found",
 			Help: "Number of bloom files processed",
+		}),
+		experimentCount: promauto.With(r).NewCounter(prometheus.CounterOpts{
+			Name: "num_experiments",
+			Help: "Number of experiments performed",
 		}),
 		chunksPerSeries: promauto.With(r).NewHistogram(prometheus.HistogramOpts{
 			Name:    "bloom_chunks_per_series",
