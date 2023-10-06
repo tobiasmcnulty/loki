@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"github.com/owen-d/BoomFilters/boom"
 	"math/rand"
 	"os"
@@ -25,6 +26,8 @@ func NewExperiment(name string, tokenizer Tokenizer, encodeChunkID bool, bloom f
 	}
 }
 
+const uuid = "2b1a5e46-36a2-4694-a4b1-f34cc7bdfc45"
+
 var (
 	three      = newNGramTokenizer(3, 4, 0)
 	threeSkip1 = newNGramTokenizer(3, 4, 1)
@@ -34,9 +37,16 @@ var (
 	onePctError  = func() *boom.ScalableBloomFilter { return boom.NewScalableBloomFilter(1024, 0.01, 0.8) }
 	fivePctError = func() *boom.ScalableBloomFilter { return boom.NewScalableBloomFilter(1024, 0.05, 0.8) }
 
+	/*
+		experiment = NewExperiment(
+			"token=3skip0_error=1%_indexchunks=true",
+			three,
+			true,
+			onePctError,
+		)*/
 	experiment = NewExperiment(
-		"token=3skip0_error=1%_indexchunks=true",
-		three,
+		"token=3skip1_error=1%_indexchunks=true",
+		threeSkip1,
 		true,
 		onePctError,
 	)
@@ -225,4 +235,20 @@ func testSBFConstantStringsWithLRU(doProfile bool) {
 			}
 		}
 	}
+}
+
+func testUUID() {
+	sbf := experiment.bloom()
+	tokens := experiment.tokenizer.Tokens(uuid)
+	for _, token := range tokens {
+		sbf.TestAndAdd(token.Key)
+	}
+
+	for _, token := range tokens {
+		fmt.Println(token.Key)
+		if !sbf.Test(token.Key) {
+			panic("not found")
+		}
+	}
+
 }

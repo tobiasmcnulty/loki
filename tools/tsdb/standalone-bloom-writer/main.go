@@ -6,9 +6,10 @@ package main
 func main() {
 	//testSBFRandomStrings(true)
 	//testSBFRandomStringsWithLRU(true)
-	testLRUMemory(true)
+	//testLRUMemory(true)
 	//testSBFRandomStringsWithHashSet(true)
 	//testSBFConstantStrings(true)
 	//testSBFConstantStringsWithLRU(true)
 	//testSBFRandomStringsWithFastCache(true)
+	testUUID()
 }
