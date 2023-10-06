@@ -263,23 +263,25 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 
 											} // for each search string
 										} // for every chunk
-										if len(got) > 0 { // we have chunks, record size info
-											var chunkTotalUncompressedSize int
-											for _, c := range got {
-												chunkTotalUncompressedSize += c.Data.(*chunkenc.Facade).LokiChunk().UncompressedSize()
-											}
-											metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
-											metrics.chunksKept.Add(float64(len(chks)))
-										}
 
 										metrics.sbfCount.Inc()
 										metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
+
 									} // for existing sbf files
 								} // for every experiment
 
 							} else {
 								level.Info(util_log.Logger).Log("error getting chunks", err)
 							}
+							if len(got) > 0 { // we have chunks, record size info
+								var chunkTotalUncompressedSize int
+								for _, c := range got {
+									chunkTotalUncompressedSize += c.Data.(*chunkenc.Facade).LokiChunk().UncompressedSize()
+								}
+								metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
+								metrics.chunksKept.Add(float64(len(chks)))
+							}
+
 							metrics.seriesKept.Inc()
 							/*
 									},
