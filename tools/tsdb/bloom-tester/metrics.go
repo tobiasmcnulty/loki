@@ -22,6 +22,16 @@ func NewExperiment(name string, tokenizer Tokenizer, encodeChunkID bool, bloom f
 	}
 }
 
+type QueryExperiment struct {
+	name         string
+	searchString string
+}
+
+func NewQueryExperiment(name string, searchString string) QueryExperiment {
+	return QueryExperiment{name: name,
+		searchString: searchString}
+}
+
 const ExperimentLabel = "experiment"
 const QueryExperimentLabel = "query_experiment"
 const LookupResultType = "lookup_result_type"

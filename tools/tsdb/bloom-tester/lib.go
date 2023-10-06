@@ -232,10 +232,8 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 							if workernumber == 1000 {
 
 						*/
-						if workernumber == testerNumber {
+						if workernumber == testerNumber { // for each series
 
-							//chksCpy := make([]index.ChunkMeta, len(chks))
-							//copy(chksCpy, chks)
 							/*(pool.acquire(
 							ls.Copy(),
 							fp,
@@ -250,10 +248,6 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 							}
 
 							cache := NewLRUCache4(150000)
-							//chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
-
-							//splitChks := splitSlice(chks, numTesters)
-							//var transformed []chunk.Chunk
 							var firstTimeStamp model.Time
 							var lastTimeStamp model.Time
 							var firstFP uint64
@@ -279,27 +273,6 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									lastFP = uint64(fp)
 								}
 							}
-
-							/*
-								for i, chk := range splitChks[testerNumber] {
-									transformed = append(transformed, chunk.Chunk{
-										ChunkRef: logproto.ChunkRef{
-											Fingerprint: uint64(fp),
-											UserID:      tenant,
-											From:        chk.From(),
-											Through:     chk.Through(),
-											Checksum:    chk.Checksum,
-										},
-									})
-
-									if i == 0 {
-										firstTimeStamp = chk.From()
-										firstFP = uint64(fp)
-									}
-									// yes I could do this just on the last one but I'm lazy
-									lastTimeStamp = chk.Through()
-									lastFP = uint64(fp)
-								}*/
 
 							got, err := client.GetChunks(
 								context.Background(),
@@ -386,7 +359,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												}
 											}
 											helpers.ExitErr("iterating chunks", itr.Error())
-										}
+										} // for each chunk
 
 										if len(got) > 0 {
 											metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
@@ -413,9 +386,9 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 											if err != nil {
 												helpers.ExitErr("writing sbf to file", err)
 											}
-										}
-									}
-								}
+										} // logging chunk stats block
+									} // if sbf doesn't exist
+								} // for each experiment
 							} else {
 								level.Info(util_log.Logger).Log("error getting chunks", err)
 							}
@@ -426,7 +399,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 
 							/*},
 							)*/
-						}
+						} // for each series
 					},
 					labels.MustNewMatcher(labels.MatchEqual, "", ""),
 				)

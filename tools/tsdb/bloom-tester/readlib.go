@@ -32,24 +32,14 @@ import (
 	"github.com/grafana/loki/tools/tsdb/helpers"
 )
 
-type QueryExperiment struct {
-	name         string
-	searchString string
-}
-
-func NewQueryExperiment(name string, searchString string) QueryExperiment {
-	return QueryExperiment{name: name,
-		searchString: searchString}
-}
-
 var queryExperiments = []QueryExperiment{
-	//NewQueryExperiment("short_common_word", "trace"),
+	NewQueryExperiment("short_common_word", "trace"),
 	//NewQueryExperiment("common_three_letter_word", "k8s"),
 	//NewQueryExperiment("specific_trace", "traceID=2279ea7e83dc812e"),
 	//NewQueryExperiment("specific_uuid", "8b6b631f-111f-4b29-b435-1e1e4e04aa8c"),
-	//NewQueryExperiment("uuid", "2b1a5e46-36a2-4694-a4b1-f34cc7bdfc45"),
+	NewQueryExperiment("uuid", "2b1a5e46-36a2-4694-a4b1-f34cc7bdfc45"),
 	NewQueryExperiment("longer_string_that_exists", "synthetic-monitoring-agent"),
-	//NewQueryExperiment("longer_string_that_doesnt_exist", "abcdefghjiklmnopqrstuvwxyzzy1234567890"),
+	NewQueryExperiment("longer_string_that_doesnt_exist", "abcdefghjiklmnopqrstuvwxyzzy1234567890"),
 }
 
 func executeRead() {
@@ -189,14 +179,22 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 								transformed,
 							)
 							if err == nil {
-								for gotIdx := range got {
-									// iterate experiments
-									for _, experiment := range experiments { // for every experiment
-										bucketPrefix := os.Getenv("BUCKET_PREFIX")
-										if strings.EqualFold(bucketPrefix, "") {
-											bucketPrefix = "named-experiments-"
-										}
-										if sbfFileExists("bloomtests",
+								bucketPrefix := os.Getenv("BUCKET_PREFIX")
+								if strings.EqualFold(bucketPrefix, "") {
+									bucketPrefix = "named-experiments-"
+								}
+								for _, experiment := range experiments { // for each experiment
+									if sbfFileExists("bloomtests",
+										fmt.Sprint(bucketPrefix, experiment.name),
+										os.Getenv("BUCKET"),
+										tenant,
+										fmt.Sprint(firstFP),
+										fmt.Sprint(lastFP),
+										fmt.Sprint(firstTimeStamp),
+										fmt.Sprint(lastTimeStamp),
+										objectClient) {
+
+										sbf := readSBFFromObjectStorage("bloomtests",
 											fmt.Sprint(bucketPrefix, experiment.name),
 											os.Getenv("BUCKET"),
 											tenant,
@@ -204,19 +202,35 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 											fmt.Sprint(lastFP),
 											fmt.Sprint(firstTimeStamp),
 											fmt.Sprint(lastTimeStamp),
-											objectClient) {
+											objectClient)
+										for gotIdx := range got { // for every chunk
+											// iterate experiments
+											//for _, experiment := range experiments { // for every experiment
 
-											sbf := readSBFFromObjectStorage("bloomtests",
-												fmt.Sprint(bucketPrefix, experiment.name),
-												os.Getenv("BUCKET"),
-												tenant,
-												fmt.Sprint(firstFP),
-												fmt.Sprint(lastFP),
-												fmt.Sprint(firstTimeStamp),
-												fmt.Sprint(lastTimeStamp),
-												objectClient)
+											/*
+												bucketPrefix := os.Getenv("BUCKET_PREFIX")
+													if strings.EqualFold(bucketPrefix, "") {
+														bucketPrefix = "named-experiments-"
+													}
+													if sbfFileExists("bloomtests",
+														fmt.Sprint(bucketPrefix, experiment.name),
+														os.Getenv("BUCKET"),
+														tenant,
+														fmt.Sprint(firstFP),
+														fmt.Sprint(lastFP),
+														fmt.Sprint(firstTimeStamp),
+														fmt.Sprint(lastTimeStamp),
+														objectClient) {
 
-											metrics.sbfCount.Inc()
+														sbf := readSBFFromObjectStorage("bloomtests",
+															fmt.Sprint(bucketPrefix, experiment.name),
+															os.Getenv("BUCKET"),
+															tenant,
+															fmt.Sprint(firstFP),
+															fmt.Sprint(lastFP),
+															fmt.Sprint(firstTimeStamp),
+															fmt.Sprint(lastTimeStamp),
+															objectClient)*/
 
 											for _, queryExperiment := range queryExperiments { // for each search string
 
@@ -228,7 +242,7 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 												chunkTokenizer.reinit(got[gotIdx].ChunkRef)
 												var tokenizer Tokenizer = chunkTokenizer
 												if !experiment.encodeChunkID {
-													tokenizer = experiment.tokenizer // so I don't have to change the lines of code below
+													tokenizer = experiment.tokenizer
 												}
 
 												numMatches := 0
@@ -285,23 +299,21 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 												helpers.ExitErr("iterating chunks ", itr.Error())
 
 											} // for each search string
+										} // for every chunk
+										if len(got) > 0 { // we have chunks, record size info
+											var chunkTotalUncompressedSize int
+											for _, c := range got {
+												chunkTotalUncompressedSize += c.Data.(*chunkenc.Facade).LokiChunk().UncompressedSize()
+											}
+											metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
+											metrics.chunksKept.Add(float64(len(chks)))
+										}
 
-											metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
+										metrics.sbfCount.Inc()
+										metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
+									} // for existing sbf files
+								} // for every experiment
 
-										} // for existing sbf files
-									} // for every experiment
-								} // for every chunk
-								if len(got) > 0 {
-									//metrics.counterPerSeries.Inc()
-									//metrics.lines.WithLabelValues(experiment.name).Add(float64(len(got)))
-									//metrics.chunks.Add(float64(len(chks)))
-									var chunkTotalUncompressedSize int
-									for _, c := range got {
-										chunkTotalUncompressedSize += c.Data.(*chunkenc.Facade).LokiChunk().UncompressedSize()
-									}
-									metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
-									metrics.chunksKept.Add(float64(len(chks)))
-								}
 							} else {
 								level.Info(util_log.Logger).Log("error getting chunks", err)
 							}
