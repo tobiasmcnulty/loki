@@ -34,9 +34,6 @@ import (
 
 var queryExperiments = []QueryExperiment{
 	NewQueryExperiment("short_common_word", "trace"),
-	//NewQueryExperiment("common_three_letter_word", "k8s"),
-	//NewQueryExperiment("specific_trace", "traceID=2279ea7e83dc812e"),
-	//NewQueryExperiment("specific_uuid", "8b6b631f-111f-4b29-b435-1e1e4e04aa8c"),
 	NewQueryExperiment("uuid", "2b1a5e46-36a2-4694-a4b1-f34cc7bdfc45"),
 	NewQueryExperiment("longer_string_that_exists", "synthetic-monitoring-agent"),
 	NewQueryExperiment("longer_string_that_doesnt_exist", "abcdefghjiklmnopqrstuvwxyzzy1234567890"),
@@ -60,12 +57,7 @@ func executeRead() {
 	openFn := func(p string) (indexshipper_index.Index, error) {
 		return tsdb.OpenShippableTSDB(p, tsdb.IndexOpts{})
 	}
-	/*
-		fmt.Println(objectClient.ObjectExists(context.Background(), "bloomtests/experiment-names-token=3skip0_error=1%_indexchunks=true/19625/29/83887662724769268-83887662724769268-1695591477.718-1695606732.376-chksum"))
-		fmt.Println(objectClient.ObjectExists(context.Background(), "bloomtests/experiment-names-token%3D3skip0_error%3D1%25_indexchunks%3Dtrue/19625/29/83887662724769268-83887662724769268-1695591477.718-1695606732.376-chksum"))
-		time.Sleep(30 * time.Second)
 
-	*/
 	shipper, err := indexshipper.NewIndexShipper(
 		conf.StorageConfig.TSDBShipperConfig.Config,
 		objectClient,
@@ -82,7 +74,6 @@ func executeRead() {
 	level.Info(util_log.Logger).Log("tenants", strings.Join(tenants, ","), "table", tableName)
 	helpers.ExitErr("resolving tenants", err)
 
-	//sampler, err := NewProbabilisticSampler(0.00008)
 	sampler, err := NewProbabilisticSampler(1.000)
 	helpers.ExitErr("creating sampler", err)
 
@@ -204,34 +195,6 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 											fmt.Sprint(lastTimeStamp),
 											objectClient)
 										for gotIdx := range got { // for every chunk
-											// iterate experiments
-											//for _, experiment := range experiments { // for every experiment
-
-											/*
-												bucketPrefix := os.Getenv("BUCKET_PREFIX")
-													if strings.EqualFold(bucketPrefix, "") {
-														bucketPrefix = "named-experiments-"
-													}
-													if sbfFileExists("bloomtests",
-														fmt.Sprint(bucketPrefix, experiment.name),
-														os.Getenv("BUCKET"),
-														tenant,
-														fmt.Sprint(firstFP),
-														fmt.Sprint(lastFP),
-														fmt.Sprint(firstTimeStamp),
-														fmt.Sprint(lastTimeStamp),
-														objectClient) {
-
-														sbf := readSBFFromObjectStorage("bloomtests",
-															fmt.Sprint(bucketPrefix, experiment.name),
-															os.Getenv("BUCKET"),
-															tenant,
-															fmt.Sprint(firstFP),
-															fmt.Sprint(lastFP),
-															fmt.Sprint(firstTimeStamp),
-															fmt.Sprint(lastTimeStamp),
-															objectClient)*/
-
 											for _, queryExperiment := range queryExperiments { // for each search string
 
 												foundInChunk := false
