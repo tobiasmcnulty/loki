@@ -333,23 +333,24 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 										objectClient) {
 
 										sbf := experiment.bloom()
+										chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
 										cache.Clear()
 
 										// Iterate chunks
 										var (
 											lines, inserts, collisions float64
 										)
-										for idx := range got {
-											chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
-											chunkTokenizer.reinit(got[idx].ChunkRef)
+										for cidx := range got {
+											//chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
+											chunkTokenizer.reinit(got[cidx].ChunkRef)
 											var tokenizer Tokenizer = chunkTokenizer
 											if !experiment.encodeChunkID {
 												tokenizer = experiment.tokenizer // so I don't have to change the lines of code below
 											}
-											lc := got[idx].Data.(*chunkenc.Facade).LokiChunk()
+											lc := got[cidx].Data.(*chunkenc.Facade).LokiChunk()
 
 											// Only report on the last experiment since they run serially
-											if experimentIdx == len(experiments)-1 && (n+idx+1)%reportEvery == 0 {
+											if experimentIdx == len(experiments)-1 && (n+cidx+1)%reportEvery == 0 {
 												estimatedProgress := float64(fp) / float64(model.Fingerprint(math.MaxUint64)) * 100.
 												level.Info(util_log.Logger).Log(
 													"msg", "iterated",
@@ -510,9 +511,8 @@ func sbfFileExists(location, prefix, period, tenant, startfp, endfp, startts, en
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
 	fullPath := fmt.Sprintf("%s/%s-%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts, checkSum)
 
-	//	fmt.Println(fullPath)
 	result, _ := objectClient.ObjectExists(context.Background(), fullPath)
-	fmt.Println(fullPath, result)
+	//fmt.Println(fullPath, result)
 	return result
 }
 

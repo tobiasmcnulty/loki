@@ -43,11 +43,11 @@ func NewQueryExperiment(name string, searchString string) QueryExperiment {
 }
 
 var queryExperiments = []QueryExperiment{
-	NewQueryExperiment("short_common_word", "trace"),
+	//NewQueryExperiment("short_common_word", "trace"),
 	//NewQueryExperiment("common_three_letter_word", "k8s"),
 	//NewQueryExperiment("specific_trace", "traceID=2279ea7e83dc812e"),
 	//NewQueryExperiment("specific_uuid", "8b6b631f-111f-4b29-b435-1e1e4e04aa8c"),
-	NewQueryExperiment("test", "2b1a5e46-36a2-4694-a4b1-f34cc7bdfc45"),
+	//NewQueryExperiment("uuid", "2b1a5e46-36a2-4694-a4b1-f34cc7bdfc45"),
 	NewQueryExperiment("longer_string_that_exists", "synthetic-monitoring-agent"),
 	//NewQueryExperiment("longer_string_that_doesnt_exist", "abcdefghjiklmnopqrstuvwxyzzy1234567890"),
 }
@@ -145,49 +145,21 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 					func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta, pos int) {
 						workernumber := AssignToWorker(pos, numTesters)
 						if workernumber == testerNumber {
-
-							//chksCpy := make([]index.ChunkMeta, len(chks))
-							//copy(chksCpy, chks)
 							/*
 								pool.acquire(
 									ls.Copy(),
 									fp,
 									chksCpy,
 									func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta) {*/
+
+							// For every series
 							metrics.series.Inc()
 							metrics.chunks.Add(float64(len(chks)))
 
 							if !sampler.Sample() {
 								return
 							}
-							//chunkTokenizer := ChunkIDTokenizerHalfInit(experiments[0].tokenizer)
 
-							//splitChks := splitSlice(chks, numTesters)
-							/*
-								var transformed []chunk.Chunk
-								var firstTimeStamp model.Time
-								var lastTimeStamp model.Time
-								var firstFP uint64
-								var lastFP uint64
-								for i, chk := range splitChks[testerNumber] {
-									transformed = append(transformed, chunk.Chunk{
-										ChunkRef: logproto.ChunkRef{
-											Fingerprint: uint64(fp),
-											UserID:      tenant,
-											From:        chk.From(),
-											Through:     chk.Through(),
-											Checksum:    chk.Checksum,
-										},
-									})
-
-									if i == 0 {
-										firstTimeStamp = chk.From()
-										firstFP = uint64(fp)
-									}
-									// yes I could do this just on the last one but I'm lazy
-									lastTimeStamp = chk.Through()
-									lastFP = uint64(fp)
-								}*/
 							var firstTimeStamp model.Time
 							var lastTimeStamp model.Time
 							var firstFP uint64
@@ -220,8 +192,6 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 							if err == nil {
 								// iterate experiments
 								for _, experiment := range experiments {
-									//bucketPrefix := "experiment-pod-counts-"
-									//bucketPrefix := "experiment-read-tests-"
 									bucketPrefix := os.Getenv("BUCKET_PREFIX")
 									if strings.EqualFold(bucketPrefix, "") {
 										bucketPrefix = "named-experiments-"
@@ -246,14 +216,15 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 											fmt.Sprint(lastTimeStamp),
 											objectClient)
 
+										metrics.sbfCount.Inc()
+
 										for _, queryExperiment := range queryExperiments {
 											foundInSbf := false
 											foundInChunk := false
 											for gotIdx := range got {
-												linesCounted := 0
-												matchOnLine := 0
 												foundInChunk = false
 
+												var a, b int
 												if gotIdx == 0 {
 													chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
 
@@ -271,21 +242,13 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 														}
 													}
 													if (numMatches > 0) && (numMatches == len(tokens)) { // full sbf match
-														/*fmt.Println("Found it")
-														fmt.Println(fmt.Sprint(bucketPrefix, experiment.name),
-															os.Getenv("BUCKET"),
-															tenant,
-															fmt.Sprint(firstFP),
-															fmt.Sprint(lastFP),
-															fmt.Sprint(firstTimeStamp),
-															fmt.Sprint(lastTimeStamp))
-														*/
 														foundInSbf = true
 														metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
 														fmt.Println("Found: ", queryExperiment.name, " in ", experiment.name, " for ", tenant)
 													}
+													a = numMatches
+													b = len(tokens)
 												}
-												//tokenizer := chunkTokenizer // so I don't have to change the lines of code below
 												lc := got[gotIdx].Data.(*chunkenc.Facade).LokiChunk()
 
 												itr, err := lc.Iterator(
@@ -297,56 +260,52 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 												)
 												helpers.ExitErr("getting iterator", err)
 
+												aLine := ""
 												for itr.Next() && itr.Error() == nil {
-													//fmt.Println("Line:", itr.Entry().Line)
-													linesCounted++
-
 													if strings.Contains(itr.Entry().Line, queryExperiment.searchString) {
 														//fmt.Println("Line match: ", itr.Entry().Line)
-														matchOnLine++
 														foundInChunk = true
-													} else {
+														aLine = itr.Entry().Line
 													}
 												}
-												/*
-													numMatches := 0
-													tokens := tokenizer.Tokens(queryExperiment.searchString)
-													for _, token := range tokens {
-														if sbf.Test(token.Key) {
-															numMatches++
-														}
-													}*/
 
-												if matchOnLine > 0 {
-													metrics.chunkMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
-													metrics.totalChunkMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Add(float64(matchOnLine))
-												}
 												if foundInChunk {
 													if foundInSbf {
+														fmt.Println("true positive", experiment.name, queryExperiment.name, a, b, gotIdx)
 														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Positive).Inc()
 													} else {
+														fmt.Println("**** false negative", experiment.name, queryExperiment.name, a, b, gotIdx)
 														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Negative).Inc()
+														fmt.Println(aLine)
 													}
 												} else {
 													if foundInSbf {
 														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Positive).Inc()
+
+														fmt.Println("false positive", experiment.name, queryExperiment.name, a, b, gotIdx)
 													} else {
 														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Negative).Inc()
+														fmt.Println("true negative", experiment.name, queryExperiment.name, a, b, gotIdx)
 													}
 
 												}
-												/*
-													if numMatches == len(tokens) { // full sbf match
-														metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
-													}*/
 
 												helpers.ExitErr("iterating chunks", itr.Error())
 											}
 
-											if len(got) > 0 {
-												//metrics.counterPerSeries.Inc()
-												metrics.lines.WithLabelValues(experiment.name).Add(float64(len(got)))
+										}
+
+										//metrics.series.Inc()
+										metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
+										if len(got) > 0 {
+											//metrics.counterPerSeries.Inc()
+											//metrics.lines.WithLabelValues(experiment.name).Add(float64(len(got)))
+											//metrics.chunks.Add(float64(len(chks)))
+											var chunkTotalUncompressedSize int
+											for _, c := range got {
+												chunkTotalUncompressedSize += c.Data.(*chunkenc.Facade).LokiChunk().UncompressedSize()
 											}
+											metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
 										}
 
 									} else {
