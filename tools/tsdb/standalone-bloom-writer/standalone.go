@@ -38,6 +38,7 @@ var (
 	onePctError  = func() *boom.ScalableBloomFilter { return boom.NewScalableBloomFilter(1024, 0.01, 0.8) }
 	fivePctError = func() *boom.ScalableBloomFilter { return boom.NewScalableBloomFilter(1024, 0.05, 0.8) }
 
+	originalThreeSkip2 = originalnewNGramTokenizer(3, 4, 2)
 	/*
 		experiment = NewExperiment(
 			"token=3skip0_error=1%_indexchunks=true",
@@ -54,7 +55,7 @@ var (
 	)
 	experiment2 = NewExperiment(
 		"token=3skip2_error=1%_indexchunks=true",
-		threeSkip2,
+		originalThreeSkip2,
 		true,
 		onePctError,
 	)
