@@ -11,5 +11,6 @@ func main() {
 	//testSBFConstantStrings(true)
 	//testSBFConstantStringsWithLRU(true)
 	//testSBFRandomStringsWithFastCache(true)
-	testUUID()
+	//testUUID()
+	testSkips()
 }

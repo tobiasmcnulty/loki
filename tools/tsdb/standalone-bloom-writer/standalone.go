@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime/pprof"
+	"strings"
 	"time"
 )
 
@@ -44,9 +45,16 @@ var (
 			true,
 			onePctError,
 		)*/
+
 	experiment = NewExperiment(
-		"token=3skip1_error=1%_indexchunks=true",
-		threeSkip1,
+		"token=3skip0_error=1%_indexchunks=true",
+		three,
+		true,
+		onePctError,
+	)
+	experiment2 = NewExperiment(
+		"token=3skip2_error=1%_indexchunks=true",
+		threeSkip2,
 		true,
 		onePctError,
 	)
@@ -249,6 +257,48 @@ func testUUID() {
 		if !sbf.Test(token.Key) {
 			panic("not found")
 		}
+	}
+
+}
+
+const teststring1 = "this is my test string"
+const teststring2 = " this is my test string"
+const teststring3 = "  this is my test string"
+const testvalue = "test "
+
+func testSkips() {
+	sbf1 := experiment2.bloom()
+	tokens1 := experiment2.tokenizer.Tokens(teststring1)
+	for _, token1 := range tokens1 {
+		sbf1.TestAndAdd(token1.Key)
+	}
+
+	sbf2 := experiment2.bloom()
+	tokens2 := experiment2.tokenizer.Tokens(teststring2)
+	for _, token2 := range tokens2 {
+		sbf2.TestAndAdd(token2.Key)
+	}
+
+	sbf3 := experiment2.bloom()
+	tokens3 := experiment2.tokenizer.Tokens(teststring3)
+	for _, token3 := range tokens3 {
+		sbf3.TestAndAdd(token3.Key)
+	}
+	if strings.Contains(teststring1, testvalue) {
+		fmt.Println("teststring1 contains 'test '")
+	}
+	if strings.Contains(teststring2, testvalue) {
+		fmt.Println("teststring2 contains 'test '")
+	}
+	if strings.Contains(teststring3, testvalue) {
+		fmt.Println("teststring3 contains 'test '")
+	}
+	testValueTokens := experiment2.tokenizer.Tokens(testvalue)
+	for _, testToken := range testValueTokens {
+		fmt.Println(testToken.Value)
+		fmt.Println("sbf1:", sbf1.Test(testToken.Key))
+		fmt.Println("sbf2:", sbf2.Test(testToken.Key))
+		fmt.Println("sbf3:", sbf3.Test(testToken.Key))
 	}
 
 }
