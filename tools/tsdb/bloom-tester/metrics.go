@@ -67,7 +67,9 @@ type Metrics struct {
 	sbfCount        prometheus.Counter // number of chunks
 	experimentCount prometheus.Counter // number of experiments performed
 
-	sbfLookups *prometheus.CounterVec
+	sbfLookups      *prometheus.CounterVec
+	sbfCreationTime *prometheus.CounterVec // time spent creating sbfs
+	sbfsCreated     *prometheus.CounterVec // number of sbfs created
 }
 
 func NewMetrics(r prometheus.Registerer) *Metrics {
@@ -162,6 +164,14 @@ func NewMetrics(r prometheus.Registerer) *Metrics {
 			Name: "sbf_lookups",
 			Help: "sbf lookup results",
 		}, []string{ExperimentLabel, QueryExperimentLabel, LookupResultType}),
+		sbfCreationTime: promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+			Name: "bloom_creation_time",
+			Help: "Time spent creating sbfs",
+		}, []string{ExperimentLabel}),
+		sbfsCreated: promauto.With(r).NewCounterVec(prometheus.CounterOpts{
+			Name: "blooms_created",
+			Help: "number of sbfs created",
+		}, []string{ExperimentLabel}),
 		/*
 			counterPerSeries: promauto.With(r).NewCounterVec(prometheus.CounterOpts{
 				Name: "sbf_counter_per_series",

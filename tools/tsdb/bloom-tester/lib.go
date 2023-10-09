@@ -321,6 +321,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 										objectClient) {
 
 										level.Info(util_log.Logger).Log("Starting work on: ", ls.String(), "'", FNV32a(ls.String()), "'", experiment.name, tenant)
+										startTime := time.Now().UnixMilli()
 
 										sbf := experiment.bloom()
 										chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
@@ -378,6 +379,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 											helpers.ExitErr("iterating chunks", itr.Error())
 										} // for each chunk
 
+										endTime := time.Now().UnixMilli()
 										if len(got) > 0 {
 											metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
 											fillRatio := sbf.FillRatio()
@@ -396,6 +398,9 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												tenant,
 												ls.String(),
 												objectClient)
+
+											metrics.sbfCreationTime.WithLabelValues(experiment.name).Add(float64(endTime - startTime))
+											metrics.sbfsCreated.WithLabelValues(experiment.name).Inc()
 
 											if err != nil {
 												helpers.ExitErr("writing sbf to file", err)
@@ -501,9 +506,8 @@ func FNV32a(text string) string {
 }
 
 func sbfFileExists2(location, prefix, period, tenant, series string, objectClient client.ObjectClient) bool {
-	checkSum := "chksum" // TODO, this won't work once we start putting out checksums
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
-	fullPath := fmt.Sprintf("%s/%s-%s", dirPath, FNV32a(series), checkSum)
+	fullPath := fmt.Sprintf("%s/%s", dirPath, FNV32a(series))
 
 	result, _ := objectClient.ObjectExists(context.Background(), fullPath)
 	//fmt.Println(fullPath, result)
@@ -511,9 +515,8 @@ func sbfFileExists2(location, prefix, period, tenant, series string, objectClien
 }
 
 func sbfFileExists(location, prefix, period, tenant, startfp, endfp, startts, endts string, objectClient client.ObjectClient) bool {
-	checkSum := "chksum" // TODO, this won't work once we start putting out checksums
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
-	fullPath := fmt.Sprintf("%s/%s-%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts, checkSum)
+	fullPath := fmt.Sprintf("%s/%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts)
 
 	result, _ := objectClient.ObjectExists(context.Background(), fullPath)
 	//fmt.Println(fullPath, result)
@@ -521,40 +524,38 @@ func sbfFileExists(location, prefix, period, tenant, startfp, endfp, startts, en
 }
 
 func writeSBF2(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, series string, objectClient client.ObjectClient) {
-	checkSum := "chksum"
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
 	objectStoragePath := fmt.Sprintf("bloomtests/%s/%s/%s", prefix, period, tenant)
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
 		helpers.ExitErr("error creating sbf dir", err)
 	}
 
-	err := writeSBFToFile(sbf, fmt.Sprintf("%s/%s-%s", dirPath, FNV32a(series), checkSum))
+	err := writeSBFToFile(sbf, fmt.Sprintf("%s/%s", dirPath, FNV32a(series)))
 	if err != nil {
 		helpers.ExitErr("writing sbf to file", err)
 	}
 
 	writeSBFToObjectStorage(sbf,
-		fmt.Sprintf("%s/%s-%s", objectStoragePath, FNV32a(series), checkSum),
-		fmt.Sprintf("%s/%s-%s", dirPath, FNV32a(series), checkSum),
+		fmt.Sprintf("%s/%s", objectStoragePath, FNV32a(series)),
+		fmt.Sprintf("%s/%s", dirPath, FNV32a(series)),
 		objectClient)
 }
 
 func writeSBF(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, startfp, endfp, startts, endts string, objectClient client.ObjectClient) {
-	checkSum := "chksum"
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
 	objectStoragePath := fmt.Sprintf("bloomtests/%s/%s/%s", prefix, period, tenant)
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
 		helpers.ExitErr("error creating sbf dir", err)
 	}
 
-	err := writeSBFToFile(sbf, fmt.Sprintf("%s/%s-%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts, checkSum))
+	err := writeSBFToFile(sbf, fmt.Sprintf("%s/%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts))
 	if err != nil {
 		helpers.ExitErr("writing sbf to file", err)
 	}
 
 	writeSBFToObjectStorage(sbf,
-		fmt.Sprintf("%s/%s-%s-%s-%s-%s", objectStoragePath, startfp, endfp, startts, endts, checkSum),
-		fmt.Sprintf("%s/%s-%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts, checkSum),
+		fmt.Sprintf("%s/%s-%s-%s-%s", objectStoragePath, startfp, endfp, startts, endts),
+		fmt.Sprintf("%s/%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts),
 		objectClient)
 }
 

@@ -359,7 +359,7 @@ func readSBFFromObjectStorage(location, prefix, period, tenant, startfp, endfp, 
 	objectStoragePath := fmt.Sprintf("bloomtests/%s/%s/%s", prefix, period, tenant)
 
 	sbf := experiments[0].bloom()
-	closer, _, _ := objectClient.GetObject(context.Background(), fmt.Sprintf("%s/%s-%s-%s-%s-%s", objectStoragePath, startfp, endfp, startts, endts, "chksum"))
+	closer, _, _ := objectClient.GetObject(context.Background(), fmt.Sprintf("%s/%s-%s-%s-%s", objectStoragePath, startfp, endfp, startts, endts))
 	sbf.ReadFrom(closer)
 	return sbf
 }
@@ -368,7 +368,7 @@ func readSBFFromObjectStorage2(location, prefix, period, tenant, series string, 
 	objectStoragePath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
 
 	sbf := experiments[0].bloom()
-	closer, _, _ := objectClient.GetObject(context.Background(), fmt.Sprintf("%s/%s-%s", objectStoragePath, FNV32a(series), "chksum"))
+	closer, _, _ := objectClient.GetObject(context.Background(), fmt.Sprintf("%s/%s", objectStoragePath, FNV32a(series)))
 	sbf.ReadFrom(closer)
 	return sbf
 }
