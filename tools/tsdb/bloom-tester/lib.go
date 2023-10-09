@@ -232,7 +232,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 							if workernumber == 1000 {
 
 						*/
-						if workernumber == testerNumber { // for each series
+						if (workernumber == testerNumber) && (len(chks) < 10000) { // for each series
 
 							/*(pool.acquire(
 							ls.Copy(),
@@ -243,18 +243,31 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 							metrics.series.Inc()
 							metrics.chunks.Add(float64(len(chks)))
 
+							/*
+								bPrefix := os.Getenv("BUCKET_PREFIX")
+								if !sbfFileExists2("bloomtests",
+									fmt.Sprint(bPrefix, experiments[0].name),
+									os.Getenv("BUCKET"),
+									tenant,
+									ls.String(),
+									objectClient) {
+									fmt.Println("Starting work on: ", ls.String(), "'", FNV32a(ls.String()), "'", tenant)
+
+								}
+							*/
+
 							if !sampler.Sample() {
 								return
 							}
 
 							cache := NewLRUCache4(150000)
-							var firstTimeStamp model.Time
-							var lastTimeStamp model.Time
-							var firstFP uint64
-							var lastFP uint64
+							//var firstTimeStamp model.Time
+							//var lastTimeStamp model.Time
+							//var firstFP uint64
+							//var lastFP uint64
 
 							transformed := make([]chunk.Chunk, 0, len(chks))
-							for i, chk := range chks {
+							for _, chk := range chks {
 								transformed = append(transformed, chunk.Chunk{
 									ChunkRef: logproto.ChunkRef{
 										Fingerprint: uint64(fp),
@@ -264,20 +277,24 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 										Checksum:    chk.Checksum,
 									},
 								})
-								if i == 0 {
-									firstTimeStamp = chk.From()
-									firstFP = uint64(fp)
-								}
-								if i == len(chks)-1 {
-									lastTimeStamp = chk.Through()
-									lastFP = uint64(fp)
-								}
+								/*
+									if i == 0 {
+										firstTimeStamp = chk.From()
+										firstFP = uint64(fp)
+									}
+									if i == len(chks)-1 {
+										lastTimeStamp = chk.Through()
+										lastFP = uint64(fp)
+									}
+								*/
 							}
+							//fmt.Println("Made array:", len(chks))
 
 							got, err := client.GetChunks(
 								context.Background(),
 								transformed,
 							)
+							//fmt.Println("got chunks", len(got))
 							if err == nil {
 								// record raw chunk sizes
 								var chunkTotalUncompressedSize int
@@ -286,6 +303,7 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 								}
 								metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
 								n += len(got)
+								//fmt.Println("got chunk size")
 
 								// iterate experiments
 								for experimentIdx, experiment := range experiments {
@@ -295,15 +313,14 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 									if strings.EqualFold(bucketPrefix, "") {
 										bucketPrefix = "named-experiments-"
 									}
-									if !sbfFileExists("bloomtests",
+									if !sbfFileExists2("bloomtests",
 										fmt.Sprint(bucketPrefix, experiment.name),
 										os.Getenv("BUCKET"),
 										tenant,
-										fmt.Sprint(firstFP),
-										fmt.Sprint(lastFP),
-										fmt.Sprint(firstTimeStamp),
-										fmt.Sprint(lastTimeStamp),
+										ls.String(),
 										objectClient) {
+
+										level.Info(util_log.Logger).Log("Starting work on: ", ls.String(), "'", FNV32a(ls.String()), "'", experiment.name, tenant)
 
 										sbf := experiment.bloom()
 										chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
@@ -372,15 +389,12 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 											metrics.inserts.WithLabelValues(experiment.name).Add(inserts)
 											metrics.collisions.WithLabelValues(experiment.name).Add(collisions)
 
-											writeSBF(sbf,
+											writeSBF2(sbf,
 												os.Getenv("DIR"),
 												fmt.Sprint(bucketPrefix, experiment.name),
 												os.Getenv("BUCKET"),
 												tenant,
-												fmt.Sprint(firstFP),
-												fmt.Sprint(lastFP),
-												fmt.Sprint(firstTimeStamp),
-												fmt.Sprint(lastTimeStamp),
+												ls.String(),
 												objectClient)
 
 											if err != nil {
@@ -479,6 +493,23 @@ func AssignToWorker(index int, numWorkers int) int {
 	return workerID
 }
 
+func FNV32a(text string) string {
+	hashAlgorithm := fnv.New32a()
+	hashAlgorithm.Reset()
+	hashAlgorithm.Write([]byte(text))
+	return strconv.Itoa(int(hashAlgorithm.Sum32()))
+}
+
+func sbfFileExists2(location, prefix, period, tenant, series string, objectClient client.ObjectClient) bool {
+	checkSum := "chksum" // TODO, this won't work once we start putting out checksums
+	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
+	fullPath := fmt.Sprintf("%s/%s-%s", dirPath, FNV32a(series), checkSum)
+
+	result, _ := objectClient.ObjectExists(context.Background(), fullPath)
+	//fmt.Println(fullPath, result)
+	return result
+}
+
 func sbfFileExists(location, prefix, period, tenant, startfp, endfp, startts, endts string, objectClient client.ObjectClient) bool {
 	checkSum := "chksum" // TODO, this won't work once we start putting out checksums
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
@@ -487,6 +518,25 @@ func sbfFileExists(location, prefix, period, tenant, startfp, endfp, startts, en
 	result, _ := objectClient.ObjectExists(context.Background(), fullPath)
 	//fmt.Println(fullPath, result)
 	return result
+}
+
+func writeSBF2(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, series string, objectClient client.ObjectClient) {
+	checkSum := "chksum"
+	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
+	objectStoragePath := fmt.Sprintf("bloomtests/%s/%s/%s", prefix, period, tenant)
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+		helpers.ExitErr("error creating sbf dir", err)
+	}
+
+	err := writeSBFToFile(sbf, fmt.Sprintf("%s/%s-%s", dirPath, FNV32a(series), checkSum))
+	if err != nil {
+		helpers.ExitErr("writing sbf to file", err)
+	}
+
+	writeSBFToObjectStorage(sbf,
+		fmt.Sprintf("%s/%s-%s", objectStoragePath, FNV32a(series), checkSum),
+		fmt.Sprintf("%s/%s-%s", dirPath, FNV32a(series), checkSum),
+		objectClient)
 }
 
 func writeSBF(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, startfp, endfp, startts, endts string, objectClient client.ObjectClient) {

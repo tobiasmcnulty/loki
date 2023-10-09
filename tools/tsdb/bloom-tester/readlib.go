@@ -5,6 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"github.com/grafana/dskit/services"
+	"github.com/grafana/loki/pkg/chunkenc"
+	"github.com/grafana/loki/pkg/logproto"
+	"github.com/grafana/loki/pkg/logql/log"
+	"github.com/grafana/loki/pkg/storage/chunk"
 	"github.com/grafana/loki/pkg/storage/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"math"
@@ -18,11 +22,7 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 
-	"github.com/grafana/loki/pkg/chunkenc"
-	"github.com/grafana/loki/pkg/logproto"
-	"github.com/grafana/loki/pkg/logql/log"
 	"github.com/grafana/loki/pkg/storage"
-	"github.com/grafana/loki/pkg/storage/chunk"
 	"github.com/grafana/loki/pkg/storage/chunk/client"
 	"github.com/grafana/loki/pkg/storage/stores/indexshipper"
 	indexshipper_index "github.com/grafana/loki/pkg/storage/stores/indexshipper/index"
@@ -125,7 +125,7 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 					nil, model.Earliest, model.Latest,
 					func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta, pos int) {
 						workernumber := AssignToWorker(pos, numTesters)
-						if workernumber == testerNumber { // For every series
+						if (workernumber == testerNumber) && (len(chks) < 10000) { // For every series
 							/*
 								pool.acquire(
 									ls.Copy(),
@@ -140,12 +140,14 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 								return
 							}
 
-							var firstTimeStamp model.Time
-							var lastTimeStamp model.Time
-							var firstFP uint64
-							var lastFP uint64
+							/*
+								var firstTimeStamp model.Time
+								var lastTimeStamp model.Time
+								var firstFP uint64
+								var lastFP uint64
+							*/
 							transformed := make([]chunk.Chunk, 0, len(chks))
-							for i, chk := range chks {
+							for _, chk := range chks {
 								transformed = append(transformed, chunk.Chunk{
 									ChunkRef: logproto.ChunkRef{
 										Fingerprint: uint64(fp),
@@ -155,14 +157,15 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 										Checksum:    chk.Checksum,
 									},
 								})
-								if i == 0 {
-									firstTimeStamp = chk.From()
-									firstFP = uint64(fp)
-								}
-								if i == len(chks)-1 {
-									lastTimeStamp = chk.Through()
-									lastFP = uint64(fp)
-								}
+								/*
+									if i == 0 {
+										firstTimeStamp = chk.From()
+										firstFP = uint64(fp)
+									}
+									if i == len(chks)-1 {
+										lastTimeStamp = chk.Through()
+										lastFP = uint64(fp)
+									}*/
 							}
 
 							got, err := client.GetChunks(
@@ -175,24 +178,18 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 									bucketPrefix = "named-experiments-"
 								}
 								for _, experiment := range experiments { // for each experiment
-									if sbfFileExists("bloomtests",
+									if sbfFileExists2("bloomtests",
 										fmt.Sprint(bucketPrefix, experiment.name),
 										os.Getenv("BUCKET"),
 										tenant,
-										fmt.Sprint(firstFP),
-										fmt.Sprint(lastFP),
-										fmt.Sprint(firstTimeStamp),
-										fmt.Sprint(lastTimeStamp),
+										ls.String(),
 										objectClient) {
 
-										sbf := readSBFFromObjectStorage("bloomtests",
+										sbf := readSBFFromObjectStorage2("bloomtests",
 											fmt.Sprint(bucketPrefix, experiment.name),
 											os.Getenv("BUCKET"),
 											tenant,
-											fmt.Sprint(firstFP),
-											fmt.Sprint(lastFP),
-											fmt.Sprint(firstTimeStamp),
-											fmt.Sprint(lastTimeStamp),
+											ls.String(),
 											objectClient)
 										for gotIdx := range got { // for every chunk
 											for _, queryExperiment := range queryExperiments { // for each search string
@@ -208,18 +205,41 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 													tokenizer = experiment.tokenizer
 												}
 
-												numMatches := 0
-												tokens := tokenizer.Tokens(queryExperiment.searchString)
-												for _, token := range tokens {
-													if sbf.Test(token.Key) {
-														numMatches++
+												//numMatches := 0
+												//lenTokens := 0
+												for i := 0; i <= tokenizer.getSkip(); i++ {
+													numMatches := 0
+													//lenTokens := 0
+													tokens := tokenizer.Tokens(queryExperiment.searchString[i:])
+
+													for _, token := range tokens {
+														//lenTokens++
+														if sbf.Test(token.Key) {
+															numMatches++
+														}
 													}
+													if numMatches > 0 {
+														if numMatches == len(tokens) {
+															foundInSbf = true
+															metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+														}
+													}
+													//fmt.Println("numMatches", numMatches, "lenTokens", len(tokens), "skip", i, "search string", queryExperiment.searchString[i:])
 												}
-												if (numMatches > 0) && (numMatches == len(tokens)) { // full sbf match
-													foundInSbf = true
-													metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
-													fmt.Println("Found: ", queryExperiment.name, " in ", experiment.name, " for ", tenant)
-												}
+												/*
+														tokens := tokenizer.Tokens(queryExperiment.searchString)
+														for _, token := range tokens {
+															if sbf.Test(token.Key) {
+																numMatches++
+															}
+														}
+
+
+													if (numMatches > 0) && (numMatches == lenTokens) { // full sbf match
+														foundInSbf = true
+														metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+														//fmt.Println("Found: ", queryExperiment.name, " in ", experiment.name, " for ", tenant)
+													}*/
 
 												lc := got[gotIdx].Data.(*chunkenc.Facade).LokiChunk()
 
@@ -244,13 +264,40 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 														//fmt.Println("true positive", experiment.name, queryExperiment.name, a, b, gotIdx)
 														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Positive).Inc()
 													} else {
-														//fmt.Println("**** false negative", experiment.name, queryExperiment.name, a, b, gotIdx)
+														level.Info(util_log.Logger).Log("**** false negative", experiment.name, queryExperiment.name, ls.String(), gotIdx, testerNumber)
+														/*
+															fmt.Println("**** false negative", experiment.name, queryExperiment.name, ls.String(), gotIdx)
+															itr2, _ := lc.Iterator(
+																context.Background(),
+																time.Unix(0, 0),
+																time.Unix(0, math.MaxInt64),
+																logproto.FORWARD,
+																log.NewNoopPipeline().ForStream(ls),
+															)
+															for itr2.Next() && itr2.Error() == nil {
+																if strings.Contains(itr2.Entry().Line, queryExperiment.searchString) {
+																	fmt.Println("Line match: ")
+																	fmt.Println("--------")
+																	fmt.Println(itr2.Entry().Line)
+																	fmt.Println("--------")
+																	fmt.Println(queryExperiment.searchString)
+																	fmt.Println("--------")
+																	//fmt.Println(lenTokens, numMatches)
+																	time.Sleep(30 * time.Second)
+																	//fmt.Println(lenTokens, numMatches)
+																	//foundInChunk = true
+																} else {
+																	//fmt.Println("Line no match: ", itr.Entry().Line)
+																}
+															}
+
+														*/
 														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Negative).Inc()
 													}
 												} else {
 													if foundInSbf {
 														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Positive).Inc()
-														//fmt.Println("false positive", experiment.name, queryExperiment.name, a, b, gotIdx)
+														//fmt.Println("false positive", experiment.name, queryExperiment.name, gotIdx, ls.String())
 													} else {
 														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Negative).Inc()
 														//fmt.Println("true negative", experiment.name, queryExperiment.name, a, b, gotIdx)
@@ -313,6 +360,15 @@ func readSBFFromObjectStorage(location, prefix, period, tenant, startfp, endfp, 
 
 	sbf := experiments[0].bloom()
 	closer, _, _ := objectClient.GetObject(context.Background(), fmt.Sprintf("%s/%s-%s-%s-%s-%s", objectStoragePath, startfp, endfp, startts, endts, "chksum"))
+	sbf.ReadFrom(closer)
+	return sbf
+}
+
+func readSBFFromObjectStorage2(location, prefix, period, tenant, series string, objectClient client.ObjectClient) *boom.ScalableBloomFilter {
+	objectStoragePath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
+
+	sbf := experiments[0].bloom()
+	closer, _, _ := objectClient.GetObject(context.Background(), fmt.Sprintf("%s/%s-%s", objectStoragePath, FNV32a(series), "chksum"))
 	sbf.ReadFrom(closer)
 	return sbf
 }

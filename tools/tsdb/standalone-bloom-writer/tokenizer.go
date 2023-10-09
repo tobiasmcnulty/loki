@@ -25,6 +25,7 @@ type TokenB struct {
 
 type Tokenizer interface {
 	Tokens(line string) []TokenB
+	getSkip() int
 }
 
 type logfmtTokenizer struct {
@@ -74,6 +75,10 @@ func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
 	t.tokenBuffer = make([]TokenB, 0, 1024)
 
 	return t
+}
+
+func (t *ngramTokenizer) getSkip() int {
+	return t.skip
 }
 
 func (t *ngramTokenizer) Tokens(line string) []TokenB {

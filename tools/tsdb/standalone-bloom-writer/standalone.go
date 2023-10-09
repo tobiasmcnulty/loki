@@ -55,7 +55,7 @@ var (
 	)
 	experiment2 = NewExperiment(
 		"token=3skip2_error=1%_indexchunks=true",
-		originalThreeSkip2,
+		threeSkip2,
 		true,
 		onePctError,
 	)
@@ -294,12 +294,16 @@ func testSkips() {
 	if strings.Contains(teststring3, testvalue) {
 		fmt.Println("teststring3 contains 'test '")
 	}
-	testValueTokens := experiment2.tokenizer.Tokens(testvalue)
-	for _, testToken := range testValueTokens {
-		fmt.Println(testToken.Value)
-		fmt.Println("sbf1:", sbf1.Test(testToken.Key))
-		fmt.Println("sbf2:", sbf2.Test(testToken.Key))
-		fmt.Println("sbf3:", sbf3.Test(testToken.Key))
+	for i := 0; i <= experiment2.tokenizer.getSkip(); i++ {
+		fmt.Println("skip", i)
+
+		testValueTokens := experiment2.tokenizer.Tokens(testvalue[i:])
+		for _, testToken := range testValueTokens {
+			fmt.Println(testToken.Value)
+			fmt.Println("sbf1:", sbf1.Test(testToken.Key))
+			fmt.Println("sbf2:", sbf2.Test(testToken.Key))
+			fmt.Println("sbf3:", sbf3.Test(testToken.Key))
+		}
 	}
 
 }

@@ -12,37 +12,37 @@ func TestNGrams(t *testing.T) {
 	for _, tc := range []struct {
 		desc  string
 		input string
-		exp   []Token
+		exp   []TokenB
 	}{
 		{
 			desc:  "empty",
 			input: "",
-			exp:   []Token{},
+			exp:   []TokenB{},
 		},
 		{
 			desc:  "single char",
 			input: "a",
-			exp:   []Token{},
+			exp:   []TokenB{},
 		},
 		{
 			desc:  "two chars",
 			input: "ab",
-			exp:   []Token{{Key: "ab", Value: ""}},
+			exp:   []TokenB{{Key: []byte("ab"), Value: "ab"}},
 		},
 		{
 			desc:  "three chars",
 			input: "abc",
-			exp:   []Token{{Key: "ab", Value: ""}, {Key: "bc", Value: ""}, {Key: "abc", Value: ""}},
+			exp:   []TokenB{{Key: []byte("ab"), Value: "ab"}, {Key: []byte("bc"), Value: "bc"}, {Key: []byte("abc"), Value: "abc"}},
 		},
 		{
 			desc:  "four chars",
 			input: "abcd",
-			exp:   []Token{{Key: "ab", Value: ""}, {Key: "bc", Value: ""}, {Key: "abc", Value: ""}, {Key: "cd", Value: ""}, {Key: "bcd", Value: ""}},
+			exp:   []TokenB{{Key: []byte("ab"), Value: "ab"}, {Key: []byte("bc"), Value: "bc"}, {Key: []byte("abc"), Value: "abc"}, {Key: []byte("cd"), Value: "cd"}, {Key: []byte("bcd"), Value: "bcd"}},
 		},
 		{
 			desc:  "foo",
 			input: "日本語",
-			exp:   []Token{{Key: "日本", Value: ""}, {Key: "本語", Value: ""}, {Key: "日本語", Value: ""}},
+			exp:   []TokenB{{Key: []byte("日本"), Value: "日本"}, {Key: []byte("本語"), Value: "本語"}, {Key: []byte("日本語"), Value: "日本語"}},
 		},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -57,34 +57,34 @@ func TestNGramsSkip(t *testing.T) {
 		desc      string
 		tokenizer *ngramTokenizer
 		input     string
-		exp       []Token
+		exp       []TokenB
 	}{
 		{
 			desc:      "four chars",
 			tokenizer: twoSkipOne,
 			input:     "abcd",
-			exp:       []Token{{Key: "ab", Value: ""}, {Key: "cd", Value: ""}},
+			exp:       []TokenB{{Key: []byte("ab"), Value: "ab"}, {Key: []byte("cd"), Value: "cd"}},
 		},
 		{
 			desc:      "special chars",
 			tokenizer: twoSkipOne,
 			input:     "日本語",
-			exp:       []Token{{Key: "日本", Value: ""}},
+			exp:       []TokenB{{Key: []byte("日本"), Value: "日本"}},
 		},
 		{
 			desc:      "multi",
 			tokenizer: newNGramTokenizer(2, 4, 1),
 			input:     "abcdefghij",
-			exp: []Token{
-				{Key: "ab", Value: ""},
-				{Key: "abc", Value: ""},
-				{Key: "cd", Value: ""},
-				{Key: "cde", Value: ""},
-				{Key: "ef", Value: ""},
-				{Key: "efg", Value: ""},
-				{Key: "gh", Value: ""},
-				{Key: "ghi", Value: ""},
-				{Key: "ij", Value: ""},
+			exp: []TokenB{
+				{Key: []byte("ab"), Value: "ab"},
+				{Key: []byte("abc"), Value: "abc"},
+				{Key: []byte("cd"), Value: "cd"},
+				{Key: []byte("cde"), Value: "cde"},
+				{Key: []byte("ef"), Value: "ef"},
+				{Key: []byte("efg"), Value: "efg"},
+				{Key: []byte("gh"), Value: "gh"},
+				{Key: []byte("ghi"), Value: "ghi"},
+				{Key: []byte("ij"), Value: "ij"},
 			},
 		},
 	} {

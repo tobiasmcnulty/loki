@@ -20,6 +20,7 @@ type TokenB struct {
 
 type Tokenizer interface {
 	Tokens(line string) []TokenB
+	getSkip() int
 }
 
 type logfmtTokenizer struct {
@@ -69,6 +70,10 @@ func newNGramTokenizer(min, max, skip int) *ngramTokenizer {
 	t.tokenBuffer = make([]TokenB, 0, 1024)
 
 	return t
+}
+
+func (t *ngramTokenizer) getSkip() int {
+	return t.skip
 }
 
 func (t *ngramTokenizer) Tokens(line string) []TokenB {
@@ -123,6 +128,10 @@ func (w *WrappedTokenizer) Tokens(line string) []TokenB {
 		w.tokenBuffer = append(w.tokenBuffer, w.f(tok))
 	}
 	return append(w.tokenBuffer, toks...)
+}
+
+func (w *WrappedTokenizer) getSkip() int {
+	return w.t.getSkip()
 }
 
 func ChunkIDTokenizer(chk logproto.ChunkRef, t Tokenizer) *WrappedTokenizer {
