@@ -41,14 +41,20 @@ const True_Positive = "true_positive"
 const True_Negative = "true_negative"
 
 type Metrics struct {
-	tenants    prometheus.Counter
-	series     prometheus.Counter // number of series
-	seriesKept prometheus.Counter // number of series kept
+	tenants        prometheus.Counter
+	readTenants    prometheus.Counter
+	series         prometheus.Counter // number of series
+	readSeries     prometheus.Counter // number of series
+	seriesKept     prometheus.Counter // number of series kept
+	readSeriesKept prometheus.Counter // number of series kept
 
 	chunks          prometheus.Counter   // number of chunks
+	readChunks      prometheus.Counter   // number of chunks
 	chunksKept      prometheus.Counter   // number of chunks kept
+	readChunksKept  prometheus.Counter   // number of chunks kept
 	chunksPerSeries prometheus.Histogram // number of chunks per series
 	chunkSize       prometheus.Histogram // uncompressed size of all chunks summed per series
+	readChunkSize   prometheus.Histogram // uncompressed size of all chunks summed per series
 
 	lines      *prometheus.CounterVec // number of lines processed per experiment (should be the same)
 	inserts    *prometheus.CounterVec // number of inserts attempted into bloom filters
@@ -58,6 +64,7 @@ type Metrics struct {
 	estimatedCount     *prometheus.HistogramVec // estimated number of elements in the bloom filter
 	estimatedErrorRate *prometheus.HistogramVec // estimated error rate of the bloom filter
 	bloomSize          *prometheus.HistogramVec // size of the bloom filter in bytes
+	readBloomSize      *prometheus.HistogramVec // size of the bloom filter in bytes
 
 	totalChunkMatchesPerSeries *prometheus.CounterVec // total number of matches for a given string, iterating over all lines in a chunk
 	chunkMatchesPerSeries      *prometheus.CounterVec // number of matches for a given string in a chunk
@@ -78,20 +85,40 @@ func NewMetrics(r prometheus.Registerer) *Metrics {
 			Name: "bloom_tenants",
 			Help: "Number of tenants",
 		}),
+		readTenants: promauto.With(r).NewCounter(prometheus.CounterOpts{
+			Name: "bloom_tenants_read",
+			Help: "Number of tenants",
+		}),
 		series: promauto.With(r).NewCounter(prometheus.CounterOpts{
 			Name: "bloom_series",
+			Help: "Number of series",
+		}),
+		readSeries: promauto.With(r).NewCounter(prometheus.CounterOpts{
+			Name: "bloom_series_read",
 			Help: "Number of series",
 		}),
 		seriesKept: promauto.With(r).NewCounter(prometheus.CounterOpts{
 			Name: "bloom_series_kept",
 			Help: "Number of series kept",
 		}),
+		readSeriesKept: promauto.With(r).NewCounter(prometheus.CounterOpts{
+			Name: "bloom_series_kept_read",
+			Help: "Number of series kept",
+		}),
 		chunks: promauto.With(r).NewCounter(prometheus.CounterOpts{
 			Name: "bloom_chunks",
 			Help: "Number of chunks",
 		}),
+		readChunks: promauto.With(r).NewCounter(prometheus.CounterOpts{
+			Name: "bloom_chunks_read",
+			Help: "Number of chunks",
+		}),
 		chunksKept: promauto.With(r).NewCounter(prometheus.CounterOpts{
 			Name: "bloom_chunks_kept",
+			Help: "Number of chunks kept",
+		}),
+		readChunksKept: promauto.With(r).NewCounter(prometheus.CounterOpts{
+			Name: "bloom_chunks_kept_read",
 			Help: "Number of chunks kept",
 		}),
 		sbfCount: promauto.With(r).NewCounter(prometheus.CounterOpts{
@@ -109,6 +136,11 @@ func NewMetrics(r prometheus.Registerer) *Metrics {
 		}),
 		chunkSize: promauto.With(r).NewHistogram(prometheus.HistogramOpts{
 			Name:    "bloom_chunk_series_size",
+			Help:    "Uncompressed size of chunks in a series",
+			Buckets: prometheus.ExponentialBucketsRange(1<<10, 1<<30, 10),
+		}),
+		readChunkSize: promauto.With(r).NewHistogram(prometheus.HistogramOpts{
+			Name:    "bloom_chunk_series_size_read",
 			Help:    "Uncompressed size of chunks in a series",
 			Buckets: prometheus.ExponentialBucketsRange(1<<10, 1<<30, 10),
 		}),
@@ -141,6 +173,11 @@ func NewMetrics(r prometheus.Registerer) *Metrics {
 		}, []string{ExperimentLabel}),
 		bloomSize: promauto.With(r).NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "bloom_size",
+			Help:    "Size of the bloom filter in bytes",
+			Buckets: prometheus.ExponentialBucketsRange(128, 16<<20, 8),
+		}, []string{ExperimentLabel}),
+		readBloomSize: promauto.With(r).NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "bloom_size_read",
 			Help:    "Size of the bloom filter in bytes",
 			Buckets: prometheus.ExponentialBucketsRange(128, 16<<20, 8),
 		}, []string{ExperimentLabel}),

@@ -89,7 +89,7 @@ func executeRead() {
 }
 
 func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShipper, client client.Client, tableName string, tenants []string, objectClient client.ObjectClient) error {
-	metrics.tenants.Add(float64(len(tenants)))
+	metrics.readTenants.Add(float64(len(tenants)))
 
 	testerNumber := extractTesterNumber(os.Getenv("HOSTNAME"))
 	if testerNumber == -1 {
@@ -133,8 +133,8 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 									chksCpy,
 									func(ls labels.Labels, fp model.Fingerprint, chks []index.ChunkMeta) {*/
 
-							metrics.series.Inc()
-							metrics.chunks.Add(float64(len(chks)))
+							metrics.readSeries.Inc()
+							metrics.readChunks.Add(float64(len(chks)))
 
 							if !sampler.Sample() {
 								return
@@ -224,22 +224,7 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 															metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
 														}
 													}
-													//fmt.Println("numMatches", numMatches, "lenTokens", len(tokens), "skip", i, "search string", queryExperiment.searchString[i:])
 												}
-												/*
-														tokens := tokenizer.Tokens(queryExperiment.searchString)
-														for _, token := range tokens {
-															if sbf.Test(token.Key) {
-																numMatches++
-															}
-														}
-
-
-													if (numMatches > 0) && (numMatches == lenTokens) { // full sbf match
-														foundInSbf = true
-														metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
-														//fmt.Println("Found: ", queryExperiment.name, " in ", experiment.name, " for ", tenant)
-													}*/
 
 												lc := got[gotIdx].Data.(*chunkenc.Facade).LokiChunk()
 
@@ -265,33 +250,6 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Positive).Inc()
 													} else {
 														level.Info(util_log.Logger).Log("**** false negative", experiment.name, queryExperiment.name, ls.String(), gotIdx, testerNumber)
-														/*
-															fmt.Println("**** false negative", experiment.name, queryExperiment.name, ls.String(), gotIdx)
-															itr2, _ := lc.Iterator(
-																context.Background(),
-																time.Unix(0, 0),
-																time.Unix(0, math.MaxInt64),
-																logproto.FORWARD,
-																log.NewNoopPipeline().ForStream(ls),
-															)
-															for itr2.Next() && itr2.Error() == nil {
-																if strings.Contains(itr2.Entry().Line, queryExperiment.searchString) {
-																	fmt.Println("Line match: ")
-																	fmt.Println("--------")
-																	fmt.Println(itr2.Entry().Line)
-																	fmt.Println("--------")
-																	fmt.Println(queryExperiment.searchString)
-																	fmt.Println("--------")
-																	//fmt.Println(lenTokens, numMatches)
-																	time.Sleep(30 * time.Second)
-																	//fmt.Println(lenTokens, numMatches)
-																	//foundInChunk = true
-																} else {
-																	//fmt.Println("Line no match: ", itr.Entry().Line)
-																}
-															}
-
-														*/
 														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Negative).Inc()
 													}
 												} else {
@@ -312,7 +270,7 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 										} // for every chunk
 
 										metrics.sbfCount.Inc()
-										metrics.bloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
+										metrics.readBloomSize.WithLabelValues(experiment.name).Observe(float64(sbf.Capacity() / 8))
 
 									} // for existing sbf files
 								} // for every experiment
@@ -325,11 +283,11 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 								for _, c := range got {
 									chunkTotalUncompressedSize += c.Data.(*chunkenc.Facade).LokiChunk().UncompressedSize()
 								}
-								metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
-								metrics.chunksKept.Add(float64(len(chks)))
+								metrics.readChunkSize.Observe(float64(chunkTotalUncompressedSize))
+								metrics.readChunksKept.Add(float64(len(chks)))
 							}
 
-							metrics.seriesKept.Inc()
+							metrics.readSeriesKept.Inc()
 							/*
 									},
 								)
