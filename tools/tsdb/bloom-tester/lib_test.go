@@ -51,6 +51,109 @@ func TestNGrams(t *testing.T) {
 	}
 }
 
+func Test4NGrams(t *testing.T) {
+	tokenizer := four
+	for _, tc := range []struct {
+		desc  string
+		input string
+		exp   []TokenB
+	}{
+		{
+			desc:  "empty",
+			input: "",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "single char",
+			input: "a",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "two chars",
+			input: "ab",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "three chars",
+			input: "abc",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "four chars",
+			input: "abcd",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}},
+		},
+		{
+			desc:  "five chars",
+			input: "abcde",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}, {Key: []byte("bcde"), Value: "bcde"}},
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			require.Equal(t, tc.exp, tokenizer.Tokens(tc.input))
+		})
+	}
+}
+
+func Test6NGrams(t *testing.T) {
+	tokenizer := six
+	for _, tc := range []struct {
+		desc  string
+		input string
+		exp   []TokenB
+	}{
+		{
+			desc:  "empty",
+			input: "",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "single char",
+			input: "a",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "two chars",
+			input: "ab",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "three chars",
+			input: "abc",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "four chars",
+			input: "abcd",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "five chars",
+			input: "abcde",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "six chars",
+			input: "abcdef",
+			exp:   []TokenB{{Key: []byte("abcdef"), Value: "abcdef"}},
+		},
+		{
+			desc:  "seven chars",
+			input: "abcdefg",
+			exp:   []TokenB{{Key: []byte("abcdef"), Value: "abcdef"}, {Key: []byte("bcdefg"), Value: "bcdefg"}},
+		},
+		{
+			desc:  "eight chars",
+			input: "abcdefgh",
+			exp:   []TokenB{{Key: []byte("abcdef"), Value: "abcdef"}, {Key: []byte("bcdefg"), Value: "bcdefg"}, {Key: []byte("cdefgh"), Value: "cdefgh"}},
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			require.Equal(t, tc.exp, tokenizer.Tokens(tc.input))
+		})
+	}
+}
+
 func TestNGramsSkip(t *testing.T) {
 	twoSkipOne := newNGramTokenizer(2, 3, 1)
 	for _, tc := range []struct {

@@ -90,6 +90,9 @@ var (
 	threeSkip1 = newNGramTokenizer(3, 4, 1)
 	threeSkip2 = newNGramTokenizer(3, 4, 2)
 	threeSkip3 = newNGramTokenizer(3, 4, 3)
+	four       = newNGramTokenizer(4, 5, 0)
+	five       = newNGramTokenizer(5, 6, 0)
+	six        = newNGramTokenizer(6, 7, 0)
 
 	onePctError  = func() *boom.ScalableBloomFilter { return boom.NewScalableBloomFilter(1024, 0.01, 0.8) }
 	fivePctError = func() *boom.ScalableBloomFilter { return boom.NewScalableBloomFilter(1024, 0.05, 0.8) }
@@ -104,6 +107,24 @@ var experiments = []Experiment{
 		true,
 		onePctError,
 	),
+	NewExperiment(
+		"token=4skip0_error=1%_indexchunks=true",
+		four,
+		true,
+		onePctError,
+	),
+	NewExperiment(
+		"token=5skip0_error=1%_indexchunks=true",
+		five,
+		true,
+		onePctError,
+	),
+	NewExperiment(
+		"token=6skip0_error=1%_indexchunks=true",
+		six,
+		true,
+		onePctError,
+	),
 	/*
 		NewExperiment(
 			"token=3skip0_error=1%_indexchunks=false",
@@ -112,13 +133,13 @@ var experiments = []Experiment{
 			onePctError,
 		),
 	*/
-
-	NewExperiment(
-		"token=3skip1_error=1%_indexchunks=true",
-		threeSkip1,
-		true,
-		onePctError,
-	),
+	/*
+		NewExperiment(
+			"token=3skip1_error=1%_indexchunks=true",
+			threeSkip1,
+			true,
+			onePctError,
+		),*/
 	/*
 		NewExperiment(
 			"token=3skip1_error=1%_indexchunks=false",
@@ -127,13 +148,13 @@ var experiments = []Experiment{
 			onePctError,
 		),
 	*/
-
-	NewExperiment(
-		"token=3skip2_error=1%_indexchunks=true",
-		threeSkip2,
-		true,
-		onePctError,
-	),
+	/*
+		NewExperiment(
+			"token=3skip2_error=1%_indexchunks=true",
+			threeSkip2,
+			true,
+			onePctError,
+		),*/
 	/*
 		NewExperiment(
 			"token=3skip2_error=1%_indexchunks=false",
@@ -142,13 +163,13 @@ var experiments = []Experiment{
 			onePctError,
 		),
 	*/
-
-	NewExperiment(
-		"token=3skip0_error=5%_indexchunks=true",
-		three,
-		true,
-		fivePctError,
-	),
+	/*
+		NewExperiment(
+			"token=3skip0_error=5%_indexchunks=true",
+			three,
+			true,
+			fivePctError,
+		),*/
 	/*
 		NewExperiment(
 			"token=3skip0_error=5%_indexchunks=false",
@@ -157,12 +178,13 @@ var experiments = []Experiment{
 			fivePctError,
 		),
 	*/
-	NewExperiment(
-		"token=3skip1_error=5%_indexchunks=true",
-		threeSkip1,
-		true,
-		fivePctError,
-	),
+	/*
+		NewExperiment(
+			"token=3skip1_error=5%_indexchunks=true",
+			threeSkip1,
+			true,
+			fivePctError,
+		),*/
 	/*
 		NewExperiment(
 			"token=3skip1_error=5%_indexchunks=false",
@@ -171,13 +193,13 @@ var experiments = []Experiment{
 			fivePctError,
 		),
 	*/
-
-	NewExperiment(
-		"token=3skip2_error=5%_indexchunks=true",
-		threeSkip2,
-		true,
-		fivePctError,
-	),
+	/*
+		NewExperiment(
+			"token=3skip2_error=5%_indexchunks=true",
+			threeSkip2,
+			true,
+			fivePctError,
+		),*/
 	/*
 		NewExperiment(
 			"token=3skip2_error=5%_indexchunks=false",
