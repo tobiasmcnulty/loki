@@ -33,7 +33,11 @@ import (
 )
 
 var queryExperiments = []QueryExperiment{
-	NewQueryExperiment("short_common_word", "trace"),
+	NewQueryExperiment("three_char_word", "tra"),
+	NewQueryExperiment("four_char_word", "trac"),
+	NewQueryExperiment("five_char_word", "trace"),
+	NewQueryExperiment("six_char_word", "traceI"),
+	NewQueryExperiment("seven_char_word", "traceID"),
 	NewQueryExperiment("uuid", "2b1a5e46-36a2-4694-a4b1-f34cc7bdfc45"),
 	NewQueryExperiment("longer_string_that_exists", "synthetic-monitoring-agent"),
 	NewQueryExperiment("longer_string_that_doesnt_exist", "abcdefghjiklmnopqrstuvwxyzzy1234567890"),
@@ -140,12 +144,6 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 								return
 							}
 
-							/*
-								var firstTimeStamp model.Time
-								var lastTimeStamp model.Time
-								var firstFP uint64
-								var lastFP uint64
-							*/
 							transformed := make([]chunk.Chunk, 0, len(chks))
 							for _, chk := range chks {
 								transformed = append(transformed, chunk.Chunk{
@@ -157,15 +155,6 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 										Checksum:    chk.Checksum,
 									},
 								})
-								/*
-									if i == 0 {
-										firstTimeStamp = chk.From()
-										firstFP = uint64(fp)
-									}
-									if i == len(chks)-1 {
-										lastTimeStamp = chk.Through()
-										lastFP = uint64(fp)
-									}*/
 							}
 
 							got, err := client.GetChunks(
@@ -193,78 +182,80 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 											objectClient)
 										for gotIdx := range got { // for every chunk
 											for _, queryExperiment := range queryExperiments { // for each search string
+												if len(queryExperiment.searchString) >= experiment.tokenizer.getMin() {
 
-												foundInChunk := false
-												foundInSbf := false
+													foundInChunk := false
+													foundInSbf := false
 
-												chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
+													chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
 
-												chunkTokenizer.reinit(got[gotIdx].ChunkRef)
-												var tokenizer Tokenizer = chunkTokenizer
-												if !experiment.encodeChunkID {
-													tokenizer = experiment.tokenizer
-												}
+													chunkTokenizer.reinit(got[gotIdx].ChunkRef)
+													var tokenizer Tokenizer = chunkTokenizer
+													if !experiment.encodeChunkID {
+														tokenizer = experiment.tokenizer
+													}
 
-												//numMatches := 0
-												//lenTokens := 0
-												for i := 0; i <= tokenizer.getSkip(); i++ {
-													numMatches := 0
-													//lenTokens := 0
-													tokens := tokenizer.Tokens(queryExperiment.searchString[i:])
+													// TODO: This won't work if the search string is really small, need to do bounds checking
+													for i := 0; i <= tokenizer.getSkip(); i++ {
+														numMatches := 0
+														tokens := tokenizer.Tokens(queryExperiment.searchString[i:])
 
-													for _, token := range tokens {
-														//lenTokens++
-														if sbf.Test(token.Key) {
-															numMatches++
+														for _, token := range tokens {
+															if sbf.Test(token.Key) {
+																numMatches++
+															}
+														}
+														if numMatches > 0 {
+															if numMatches == len(tokens) {
+																foundInSbf = true
+																metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+															}
 														}
 													}
-													if numMatches > 0 {
-														if numMatches == len(tokens) {
-															foundInSbf = true
-															metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+
+													lc := got[gotIdx].Data.(*chunkenc.Facade).LokiChunk()
+
+													itr, err := lc.Iterator(
+														context.Background(),
+														time.Unix(0, 0),
+														time.Unix(0, math.MaxInt64),
+														logproto.FORWARD,
+														log.NewNoopPipeline().ForStream(ls),
+													)
+													helpers.ExitErr("getting iterator", err)
+
+													for itr.Next() && itr.Error() == nil {
+														if strings.Contains(itr.Entry().Line, queryExperiment.searchString) {
+															//fmt.Println("Line match: ", itr.Entry().Line)
+															foundInChunk = true
 														}
 													}
-												}
 
-												lc := got[gotIdx].Data.(*chunkenc.Facade).LokiChunk()
-
-												itr, err := lc.Iterator(
-													context.Background(),
-													time.Unix(0, 0),
-													time.Unix(0, math.MaxInt64),
-													logproto.FORWARD,
-													log.NewNoopPipeline().ForStream(ls),
-												)
-												helpers.ExitErr("getting iterator", err)
-
-												for itr.Next() && itr.Error() == nil {
-													if strings.Contains(itr.Entry().Line, queryExperiment.searchString) {
-														//fmt.Println("Line match: ", itr.Entry().Line)
-														foundInChunk = true
-													}
-												}
-
-												if foundInChunk {
-													if foundInSbf {
-														//fmt.Println("true positive", experiment.name, queryExperiment.name, a, b, gotIdx)
-														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Positive).Inc()
+													if foundInChunk {
+														if foundInSbf {
+															//fmt.Println("true positive", experiment.name, queryExperiment.name, a, b, gotIdx)
+															metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Positive).Inc()
+														} else {
+															level.Info(util_log.Logger).Log("**** false negative", experiment.name, queryExperiment.name, ls.String(), gotIdx, testerNumber)
+															metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Negative).Inc()
+														}
 													} else {
-														level.Info(util_log.Logger).Log("**** false negative", experiment.name, queryExperiment.name, ls.String(), gotIdx, testerNumber)
-														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Negative).Inc()
+														if foundInSbf {
+															metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Positive).Inc()
+															//fmt.Println("false positive", experiment.name, queryExperiment.name, gotIdx, ls.String())
+														} else {
+															metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Negative).Inc()
+															//fmt.Println("true negative", experiment.name, queryExperiment.name, a, b, gotIdx)
+														}
 													}
-												} else {
-													if foundInSbf {
-														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, False_Positive).Inc()
-														//fmt.Println("false positive", experiment.name, queryExperiment.name, gotIdx, ls.String())
-													} else {
-														metrics.sbfLookups.WithLabelValues(experiment.name, queryExperiment.name, True_Negative).Inc()
-														//fmt.Println("true negative", experiment.name, queryExperiment.name, a, b, gotIdx)
-													}
+
+													metrics.experimentCount.Inc()
+
+													helpers.ExitErr("iterating chunks ", itr.Error())
+												} else // if search string is long enough
+												{
+													//	fmt.Println("Skipping", queryExperiment.name, "because it's too short", experiment.name)
 												}
-
-												metrics.experimentCount.Inc()
-
-												helpers.ExitErr("iterating chunks ", itr.Error())
 
 											} // for each search string
 										} // for every chunk
