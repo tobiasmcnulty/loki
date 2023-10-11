@@ -91,6 +91,8 @@ var (
 	threeSkip2 = newNGramTokenizer(3, 4, 2)
 	threeSkip3 = newNGramTokenizer(3, 4, 3)
 	four       = newNGramTokenizer(4, 5, 0)
+	fourSkip1  = newNGramTokenizer(4, 5, 1)
+	fourSkip2  = newNGramTokenizer(4, 5, 2)
 	five       = newNGramTokenizer(5, 6, 0)
 	six        = newNGramTokenizer(6, 7, 0)
 
@@ -101,12 +103,14 @@ var (
 var experiments = []Experiment{
 	// n > error > skip > index
 
-	NewExperiment(
-		"token=3skip0_error=1%_indexchunks=true",
-		three,
-		true,
-		onePctError,
-	),
+	/*
+		NewExperiment(
+			"token=3skip0_error=1%_indexchunks=true",
+			three,
+			true,
+			onePctError,
+		),
+	*/
 	NewExperiment(
 		"token=4skip0_error=1%_indexchunks=true",
 		four,
@@ -114,17 +118,49 @@ var experiments = []Experiment{
 		onePctError,
 	),
 	NewExperiment(
-		"token=5skip0_error=1%_indexchunks=true",
-		five,
+		"token=4skip1_error=1%_indexchunks=true",
+		fourSkip1,
 		true,
 		onePctError,
 	),
 	NewExperiment(
-		"token=6skip0_error=1%_indexchunks=true",
-		six,
+		"token=4skip2_error=1%_indexchunks=true",
+		fourSkip2,
 		true,
 		onePctError,
 	),
+	NewExperiment(
+		"token=4skip0_error=5%_indexchunks=true",
+		four,
+		true,
+		fivePctError,
+	),
+	NewExperiment(
+		"token=4skip1_error=5%_indexchunks=true",
+		fourSkip1,
+		true,
+		fivePctError,
+	),
+	NewExperiment(
+		"token=4skip2_error=5%_indexchunks=true",
+		fourSkip2,
+		true,
+		fivePctError,
+	),
+	/*
+		NewExperiment(
+			"token=5skip0_error=1%_indexchunks=true",
+			five,
+			true,
+			onePctError,
+		),
+		NewExperiment(
+			"token=6skip0_error=1%_indexchunks=true",
+			six,
+			true,
+			onePctError,
+		),
+	*/
 	/*
 		NewExperiment(
 			"token=3skip0_error=1%_indexchunks=false",
@@ -265,28 +301,11 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 							metrics.series.Inc()
 							metrics.chunks.Add(float64(len(chks)))
 
-							/*
-								bPrefix := os.Getenv("BUCKET_PREFIX")
-								if !sbfFileExists2("bloomtests",
-									fmt.Sprint(bPrefix, experiments[0].name),
-									os.Getenv("BUCKET"),
-									tenant,
-									ls.String(),
-									objectClient) {
-									fmt.Println("Starting work on: ", ls.String(), "'", FNV32a(ls.String()), "'", tenant)
-
-								}
-							*/
-
 							if !sampler.Sample() {
 								return
 							}
 
 							cache := NewLRUCache4(150000)
-							//var firstTimeStamp model.Time
-							//var lastTimeStamp model.Time
-							//var firstFP uint64
-							//var lastFP uint64
 
 							transformed := make([]chunk.Chunk, 0, len(chks))
 							for _, chk := range chks {
@@ -299,24 +318,12 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 										Checksum:    chk.Checksum,
 									},
 								})
-								/*
-									if i == 0 {
-										firstTimeStamp = chk.From()
-										firstFP = uint64(fp)
-									}
-									if i == len(chks)-1 {
-										lastTimeStamp = chk.Through()
-										lastFP = uint64(fp)
-									}
-								*/
 							}
-							//fmt.Println("Made array:", len(chks))
 
 							got, err := client.GetChunks(
 								context.Background(),
 								transformed,
 							)
-							//fmt.Println("got chunks", len(got))
 							if err == nil {
 								// record raw chunk sizes
 								var chunkTotalUncompressedSize int
@@ -325,12 +332,9 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 								}
 								metrics.chunkSize.Observe(float64(chunkTotalUncompressedSize))
 								n += len(got)
-								//fmt.Println("got chunk size")
 
 								// iterate experiments
 								for experimentIdx, experiment := range experiments {
-									//bucketPrefix := "experiment-pod-counts-"
-									//bucketPrefix := "experiment-read-tests-"
 									bucketPrefix := os.Getenv("BUCKET_PREFIX")
 									if strings.EqualFold(bucketPrefix, "") {
 										bucketPrefix = "named-experiments-"
@@ -354,7 +358,6 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 											lines, inserts, collisions float64
 										)
 										for cidx := range got {
-											//chunkTokenizer := ChunkIDTokenizerHalfInit(experiment.tokenizer)
 											chunkTokenizer.reinit(got[cidx].ChunkRef)
 											var tokenizer Tokenizer = chunkTokenizer
 											if !experiment.encodeChunkID {
@@ -387,7 +390,6 @@ func analyze(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexShippe
 												lines++
 												for _, tok := range toks {
 													if tok.Key != nil {
-														//fmt.Println(tok.Key)
 														if !cache.Get(tok.Key) {
 															cache.Put(tok.Key)
 															if dup := sbf.TestAndAdd(tok.Key); dup {
@@ -466,31 +468,6 @@ func estimatedCount(m uint, p float64) uint {
 	return uint(-float64(m) * math.Log(1-p))
 }
 
-func splitSlice(slice []index.ChunkMeta, n int) [][]index.ChunkMeta {
-	if n <= 0 {
-		return nil // Return nil if n is not positive
-	}
-
-	// Calculate the size of each smaller slice
-	sliceSize := len(slice) / n
-	var result [][]index.ChunkMeta
-
-	// Split the original slice into smaller slices
-	for i := 0; i < n; i++ {
-		startIndex := i * sliceSize
-		endIndex := (i + 1) * sliceSize
-
-		// Handle the last slice to include any remaining elements
-		if i == n-1 {
-			endIndex = len(slice)
-		}
-
-		result = append(result, slice[startIndex:endIndex])
-	}
-
-	return result
-}
-
 func extractTesterNumber(input string) int {
 	// Split the input string by '-' to get individual parts
 	parts := strings.Split(input, "-")
@@ -536,15 +513,6 @@ func sbfFileExists2(location, prefix, period, tenant, series string, objectClien
 	return result
 }
 
-func sbfFileExists(location, prefix, period, tenant, startfp, endfp, startts, endts string, objectClient client.ObjectClient) bool {
-	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
-	fullPath := fmt.Sprintf("%s/%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts)
-
-	result, _ := objectClient.ObjectExists(context.Background(), fullPath)
-	//fmt.Println(fullPath, result)
-	return result
-}
-
 func writeSBF2(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, series string, objectClient client.ObjectClient) {
 	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
 	objectStoragePath := fmt.Sprintf("bloomtests/%s/%s/%s", prefix, period, tenant)
@@ -560,24 +528,6 @@ func writeSBF2(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, 
 	writeSBFToObjectStorage(sbf,
 		fmt.Sprintf("%s/%s", objectStoragePath, FNV32a(series)),
 		fmt.Sprintf("%s/%s", dirPath, FNV32a(series)),
-		objectClient)
-}
-
-func writeSBF(sbf *boom.ScalableBloomFilter, location, prefix, period, tenant, startfp, endfp, startts, endts string, objectClient client.ObjectClient) {
-	dirPath := fmt.Sprintf("%s/%s/%s/%s", location, prefix, period, tenant)
-	objectStoragePath := fmt.Sprintf("bloomtests/%s/%s/%s", prefix, period, tenant)
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		helpers.ExitErr("error creating sbf dir", err)
-	}
-
-	err := writeSBFToFile(sbf, fmt.Sprintf("%s/%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts))
-	if err != nil {
-		helpers.ExitErr("writing sbf to file", err)
-	}
-
-	writeSBFToObjectStorage(sbf,
-		fmt.Sprintf("%s/%s-%s-%s-%s", objectStoragePath, startfp, endfp, startts, endts),
-		fmt.Sprintf("%s/%s-%s-%s-%s", dirPath, startfp, endfp, startts, endts),
 		objectClient)
 }
 

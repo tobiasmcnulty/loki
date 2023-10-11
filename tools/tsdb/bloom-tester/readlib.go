@@ -33,8 +33,8 @@ import (
 )
 
 var queryExperiments = []QueryExperiment{
-	NewQueryExperiment("three_char_word", "tra"),
-	NewQueryExperiment("four_char_word", "trac"),
+	//NewQueryExperiment("three_char_word", "tra"),
+	//NewQueryExperiment("four_char_word", "trac"),
 	NewQueryExperiment("five_char_word", "trace"),
 	NewQueryExperiment("six_char_word", "traceI"),
 	NewQueryExperiment("seven_char_word", "traceID"),
@@ -195,20 +195,21 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 														tokenizer = experiment.tokenizer
 													}
 
-													// TODO: This won't work if the search string is really small, need to do bounds checking
 													for i := 0; i <= tokenizer.getSkip(); i++ {
 														numMatches := 0
-														tokens := tokenizer.Tokens(queryExperiment.searchString[i:])
+														if (len(queryExperiment.searchString) - i) >= tokenizer.getMin() {
+															tokens := tokenizer.Tokens(queryExperiment.searchString[i:])
 
-														for _, token := range tokens {
-															if sbf.Test(token.Key) {
-																numMatches++
+															for _, token := range tokens {
+																if sbf.Test(token.Key) {
+																	numMatches++
+																}
 															}
-														}
-														if numMatches > 0 {
-															if numMatches == len(tokens) {
-																foundInSbf = true
-																metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+															if numMatches > 0 {
+																if numMatches == len(tokens) {
+																	foundInSbf = true
+																	metrics.sbfMatchesPerSeries.WithLabelValues(experiment.name, queryExperiment.name).Inc()
+																}
 															}
 														}
 													}
@@ -302,15 +303,6 @@ func analyzeRead(metrics *Metrics, sampler Sampler, shipper indexshipper.IndexSh
 	time.Sleep(30 * time.Second)         // allow final scrape
 	time.Sleep(time.Duration(1<<63 - 1)) // wait forever
 	return nil
-}
-
-func readSBFFromObjectStorage(location, prefix, period, tenant, startfp, endfp, startts, endts string, objectClient client.ObjectClient) *boom.ScalableBloomFilter {
-	objectStoragePath := fmt.Sprintf("bloomtests/%s/%s/%s", prefix, period, tenant)
-
-	sbf := experiments[0].bloom()
-	closer, _, _ := objectClient.GetObject(context.Background(), fmt.Sprintf("%s/%s-%s-%s-%s", objectStoragePath, startfp, endfp, startts, endts))
-	sbf.ReadFrom(closer)
-	return sbf
 }
 
 func readSBFFromObjectStorage2(location, prefix, period, tenant, series string, objectClient client.ObjectClient) *boom.ScalableBloomFilter {

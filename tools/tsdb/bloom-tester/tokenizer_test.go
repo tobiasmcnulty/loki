@@ -37,6 +37,290 @@ func TestNGramTokenizer(t *testing.T) {
 	}
 }
 
+func Test3Gram0SkipTokenizer(t *testing.T) {
+	tokenizer := three
+	for _, tc := range []struct {
+		desc  string
+		input string
+		exp   []TokenB
+	}{
+		{
+			desc:  "empty",
+			input: "",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "single char",
+			input: "a",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "three char",
+			input: "abc",
+			exp:   []TokenB{{Key: []byte("abc"), Value: "abc"}},
+		},
+		{
+			desc:  "four chars",
+			input: "abcd",
+			exp:   []TokenB{{Key: []byte("abc"), Value: "abc"}, {Key: []byte("bcd"), Value: "bcd"}},
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			require.Equal(t, tc.exp, tokenizer.Tokens(tc.input))
+		})
+	}
+}
+
+func Test4Gram0SkipTokenizer(t *testing.T) {
+	tokenizer := four
+	for _, tc := range []struct {
+		desc  string
+		input string
+		exp   []TokenB
+	}{
+		{
+			desc:  "empty",
+			input: "",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "single char",
+			input: "a",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "three char",
+			input: "abc",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "four chars",
+			input: "abcd",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}},
+		},
+		{
+			desc:  "five chars",
+			input: "abcde",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}, {Key: []byte("bcde"), Value: "bcde"}},
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			require.Equal(t, tc.exp, tokenizer.Tokens(tc.input))
+		})
+	}
+}
+
+func Test4Gram1SkipTokenizer(t *testing.T) {
+	tokenizer := fourSkip1
+	for _, tc := range []struct {
+		desc  string
+		input string
+		exp   []TokenB
+	}{
+		{
+			desc:  "empty",
+			input: "",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "single char",
+			input: "a",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "three char",
+			input: "abc",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "four chars",
+			input: "abcd",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}},
+		},
+		{
+			desc:  "five chars",
+			input: "abcde",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}},
+		},
+		{
+			desc:  "six chars",
+			input: "abcdef",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}, {Key: []byte("cdef"), Value: "cdef"}},
+		},
+		{
+			desc:  "seven chars",
+			input: "abcdefg",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}, {Key: []byte("cdef"), Value: "cdef"}},
+		},
+		{
+			desc:  "eight chars",
+			input: "abcdefgh",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}, {Key: []byte("cdef"), Value: "cdef"}, {Key: []byte("efgh"), Value: "efgh"}},
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			require.Equal(t, tc.exp, tokenizer.Tokens(tc.input))
+		})
+	}
+}
+
+func Test4Gram2SkipTokenizer(t *testing.T) {
+	tokenizer := fourSkip2
+	for _, tc := range []struct {
+		desc  string
+		input string
+		exp   []TokenB
+	}{
+		{
+			desc:  "empty",
+			input: "",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "single char",
+			input: "a",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "three char",
+			input: "abc",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "four chars",
+			input: "abcd",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}},
+		},
+		{
+			desc:  "five chars",
+			input: "abcde",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}},
+		},
+		{
+			desc:  "six chars",
+			input: "abcdef",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}},
+		},
+		{
+			desc:  "seven chars",
+			input: "abcdefg",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}, {Key: []byte("defg"), Value: "defg"}},
+		},
+		{
+			desc:  "eight chars",
+			input: "abcdefgh",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}, {Key: []byte("defg"), Value: "defg"}},
+		},
+		{
+			desc:  "nine chars",
+			input: "abcdefghi",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}, {Key: []byte("defg"), Value: "defg"}},
+		},
+		{
+			desc:  "ten chars",
+			input: "abcdefghij",
+			exp:   []TokenB{{Key: []byte("abcd"), Value: "abcd"}, {Key: []byte("defg"), Value: "defg"}, {Key: []byte("ghij"), Value: "ghij"}},
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			require.Equal(t, tc.exp, tokenizer.Tokens(tc.input))
+		})
+	}
+}
+
+func Test5Gram0SkipTokenizer(t *testing.T) {
+	tokenizer := five
+	for _, tc := range []struct {
+		desc  string
+		input string
+		exp   []TokenB
+	}{
+		{
+			desc:  "empty",
+			input: "",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "single char",
+			input: "a",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "three char",
+			input: "abc",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "four chars",
+			input: "abcd",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "five chars",
+			input: "abcde",
+			exp:   []TokenB{{Key: []byte("abcde"), Value: "abcde"}},
+		},
+		{
+			desc:  "six chars",
+			input: "abcdef",
+			exp:   []TokenB{{Key: []byte("abcde"), Value: "abcde"}, {Key: []byte("bcdef"), Value: "bcdef"}},
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			require.Equal(t, tc.exp, tokenizer.Tokens(tc.input))
+		})
+	}
+}
+
+func Test6Gram0SkipTokenizer(t *testing.T) {
+	tokenizer := six
+	for _, tc := range []struct {
+		desc  string
+		input string
+		exp   []TokenB
+	}{
+		{
+			desc:  "empty",
+			input: "",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "single char",
+			input: "a",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "three char",
+			input: "abc",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "four chars",
+			input: "abcd",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "five chars",
+			input: "abcde",
+			exp:   []TokenB{},
+		},
+		{
+			desc:  "six chars",
+			input: "abcdef",
+			exp:   []TokenB{{Key: []byte("abcdef"), Value: "abcdef"}},
+		},
+		{
+			desc:  "seven chars",
+			input: "abcdefg",
+			exp:   []TokenB{{Key: []byte("abcdef"), Value: "abcdef"}, {Key: []byte("bcdefg"), Value: "bcdefg"}},
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			require.Equal(t, tc.exp, tokenizer.Tokens(tc.input))
+		})
+	}
+}
+
 func makeBuf(from, through, checksum int) []byte {
 	p := make([]byte, 0, 256)
 	i64buf := make([]byte, binary.MaxVarintLen64)
