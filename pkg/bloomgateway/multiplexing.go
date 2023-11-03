@@ -52,9 +52,10 @@ func (t Task) WithRequest(req *logproto.FilterChunkRefRequest) Task {
 	}
 }
 
+// FilterRequest extends v1.Request with an error channel
 type FilterRequest struct {
 	v1.Request
-	ErrCh chan<- error
+	Error chan<- error
 }
 
 // taskMergeIterator implements v1.Iterator
@@ -109,7 +110,7 @@ func (it *taskMergeIterator) Next() bool {
 	it.curr.Chks = convertToChunkRefs(group.Refs)
 	it.curr.Searches = convertToSearches(task.Request.Filters)
 	it.curr.Response = task.ResCh
-	it.curr.ErrCh = task.ErrCh
+	it.curr.Error = task.ErrCh
 	return true
 }
 

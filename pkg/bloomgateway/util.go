@@ -17,11 +17,8 @@ type SliceIterWithIndex[T any] struct {
 }
 
 func (it *SliceIterWithIndex[T]) Next() bool {
-	if it.pos+1 > len(it.xs) {
-		return false
-	}
 	it.pos++
-	return true
+	return it.pos < len(it.xs)
 }
 
 func (it *SliceIterWithIndex[T]) Err() error {
