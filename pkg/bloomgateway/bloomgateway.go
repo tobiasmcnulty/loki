@@ -258,6 +258,13 @@ func (g *Gateway) FilterChunkRefs(ctx context.Context, req *logproto.FilterChunk
 		return nil, err
 	}
 
+	// Shortcut if request does not contain filters
+	if len(req.Filters) == 0 {
+		return &logproto.FilterChunkRefResponse{
+			ChunkRefs: req.Refs,
+		}, nil
+	}
+
 	for _, ref := range req.Refs {
 		if ref.Tenant != tenantID {
 			return nil, errors.Wrapf(errInvalidTenant, "expected chunk refs from tenant %s, got tenant %s", tenantID, ref.Tenant)
@@ -347,7 +354,6 @@ func (w *worker) running(ctx context.Context) error {
 	maxItems := 10
 	maxWaitTime := 500 * time.Millisecond
 
-loop:
 	for ctx.Err() == nil {
 		taskCtx := context.Background()
 		items, newIdx, err := w.queue.DequeueMany(taskCtx, idx, w.ID, maxItems, maxWaitTime)
@@ -408,11 +414,12 @@ loop:
 				for _, t := range tasks {
 					t.ErrCh <- err
 				}
-				break loop
+				continue
 			}
 
 			// no blocks found
 			if len(bqs) == 0 {
+				level.Warn(w.logger).Log("msg", "no blocks found for day", "day", day)
 				for _, t := range tasks {
 					for _, ref := range t.Request.Refs {
 						t.ResCh <- v1.Output{
@@ -421,7 +428,7 @@ loop:
 						}
 					}
 				}
-				break loop
+				continue
 			}
 
 			for _, bq := range bqs {
@@ -436,7 +443,7 @@ loop:
 					for _, t := range tasks {
 						t.ErrCh <- err
 					}
-					break loop
+					continue
 				}
 			}
 
